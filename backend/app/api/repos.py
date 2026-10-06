@@ -1,10 +1,13 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from app.api.llm import get_llm_client, to_llm_http_error
+from app.llm.client import LLMClient, LLMError
+from app.repo.ask import SYSTEM_PROMPT
 from app.repo.errors import (
     CloneFailedError,
     CloneTimeoutError,
@@ -15,6 +18,7 @@ from app.repo.errors import (
     RepoUnavailableError,
 )
 from app.repo.repo_map import RepoMap
+from app.repo.search import RankedFile
 from app.repo.service import RepoService, RepoSummary, get_repo_service
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/repos")
 
 MAX_URL_LENGTH = 300
+MAX_QUERY_LENGTH = 200
+MAX_QUESTION_LENGTH = 1000
 
 STATUS_BY_ERROR: dict[type[RepoError], int] = {
     InvalidRepoUrlError: status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -114,6 +120,49 @@ class RepoMapResponse(CamelModel):
     test_links: list[TestLinkResponse]
 
 
+class SearchMatchResponse(CamelModel):
+    path: str
+    line: int
+    text: str
+
+
+class SearchResponse(CamelModel):
+    matches: list[SearchMatchResponse]
+    is_truncated: bool
+
+
+class RankedFileResponse(CamelModel):
+    path: str
+    score: float
+    reasons: list[str]
+
+
+class RelevantFilesResponse(CamelModel):
+    files: list[RankedFileResponse]
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=MAX_QUESTION_LENGTH)
+
+
+class AskResponse(CamelModel):
+    answer: str
+    model: str
+    latency_ms: int
+    files: list[RankedFileResponse]
+
+
+def to_ranked_responses(files: list[RankedFile]) -> list[RankedFileResponse]:
+    return [RankedFileResponse(path=f.path, score=f.score, reasons=f.reasons) for f in files]
+
+
+def require_text(value: str, field: str) -> str:
+    text = value.strip()
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{field} must not be empty")
+    return text
+
+
 def to_map_response(repo_map: RepoMap) -> RepoMapResponse:
     return RepoMapResponse(
         files=[
@@ -200,6 +249,60 @@ async def get_repo_map(repo_id: str, repos: RepoServiceDep) -> RepoMapResponse:
     except RepoError as exc:
         raise to_http_error(exc) from exc
     return to_map_response(repo_map)
+
+
+SearchQuery = Annotated[str, Query(min_length=1, max_length=MAX_QUERY_LENGTH)]
+
+
+@router.get("/{repo_id}/search", response_model=SearchResponse, response_model_by_alias=True)
+async def search_repo(repo_id: str, q: SearchQuery, repos: RepoServiceDep) -> SearchResponse:
+    try:
+        result = await repos.search(repo_id, require_text(q, "Query"))
+    except RepoError as exc:
+        raise to_http_error(exc) from exc
+    return SearchResponse(
+        matches=[
+            SearchMatchResponse(path=m.path, line=m.line, text=m.text) for m in result.matches
+        ],
+        is_truncated=result.is_truncated,
+    )
+
+
+@router.get(
+    "/{repo_id}/relevant", response_model=RelevantFilesResponse, response_model_by_alias=True
+)
+async def get_relevant_files(
+    repo_id: str, q: SearchQuery, repos: RepoServiceDep
+) -> RelevantFilesResponse:
+    try:
+        ranked = await repos.rank(repo_id, require_text(q, "Query"))
+    except RepoError as exc:
+        raise to_http_error(exc) from exc
+    return RelevantFilesResponse(files=to_ranked_responses(ranked))
+
+
+@router.post("/{repo_id}/ask", response_model=AskResponse, response_model_by_alias=True)
+async def ask_repo(
+    repo_id: str,
+    body: AskRequest,
+    repos: RepoServiceDep,
+    llm: Annotated[LLMClient, Depends(get_llm_client)],
+) -> AskResponse:
+    question = require_text(body.question, "Question")
+    try:
+        ask_prompt = await repos.build_ask_prompt(repo_id, question)
+    except RepoError as exc:
+        raise to_http_error(exc) from exc
+    try:
+        completion = await llm.complete(ask_prompt.prompt, role="worker", system=SYSTEM_PROMPT)
+    except LLMError as exc:
+        raise to_llm_http_error(exc) from exc
+    return AskResponse(
+        answer=completion.output,
+        model=completion.model,
+        latency_ms=completion.latency_ms,
+        files=to_ranked_responses(ask_prompt.files),
+    )
 
 
 @router.get("/{repo_id}", response_model=RepoSummaryResponse, response_model_by_alias=True)

@@ -43,12 +43,16 @@ class LLMClient:
     def model_for(self, role: ModelRole) -> str:
         return self._settings.model_planner if role == "planner" else self._settings.model_worker
 
-    async def complete(self, prompt: str, role: ModelRole = "worker") -> Completion:
+    async def complete(
+        self, prompt: str, role: ModelRole = "worker", system: str | None = None
+    ) -> Completion:
         if not self._settings.is_llm_configured:
             raise LLMNotConfiguredError("Nebius settings are missing")
 
         model = self.model_for(role)
-        payload = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+        messages = [{"role": "system", "content": system}] if system else []
+        messages.append({"role": "user", "content": prompt})
+        payload = {"model": model, "messages": messages}
         started = time.perf_counter()
         data = await self._post_with_retries("/chat/completions", payload)
         latency_ms = int((time.perf_counter() - started) * 1000)

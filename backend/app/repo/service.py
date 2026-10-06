@@ -7,10 +7,12 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.config import Settings, get_settings
+from app.repo.ask import AskPrompt, build_ask_prompt
 from app.repo.clone import GitHubRepoRef, clone_repository, parse_github_url
 from app.repo.errors import RepoNotFoundError, RepoTooLargeError
 from app.repo.repo_map import RepoMap, build_repo_map
 from app.repo.scan import ScannedFile, scan_workspace
+from app.repo.search import RankedFile, SearchResult, rank_files, search_code
 from app.repo.stack import Stack, detect_stack
 from app.repo.workspace import directory_size_bytes, remove_workspace
 
@@ -43,6 +45,8 @@ class RepoSummary:
 class RepoRecord:
     summary: RepoSummary
     repo_map: RepoMap
+    workspace: Path
+    files: list[ScannedFile]  # every scanned file, not just the summary's first page
 
 
 class RepoService:
@@ -84,6 +88,21 @@ class RepoService:
     def get_map(self, repo_id: str) -> RepoMap:
         return self._get_record(repo_id).repo_map
 
+    async def search(self, repo_id: str, query: str) -> SearchResult:
+        record = self._get_record(repo_id)
+        return await asyncio.to_thread(search_code, record.workspace, record.files, query)
+
+    async def rank(self, repo_id: str, query: str) -> list[RankedFile]:
+        record = self._get_record(repo_id)
+        return await asyncio.to_thread(
+            rank_files, record.workspace, record.files, record.repo_map, query
+        )
+
+    async def build_ask_prompt(self, repo_id: str, question: str) -> AskPrompt:
+        record = self._get_record(repo_id)
+        ranked = await self.rank(repo_id, question)
+        return await asyncio.to_thread(build_ask_prompt, record.workspace, ranked, question)
+
     def _get_record(self, repo_id: str) -> RepoRecord:
         record = self._repos.get(repo_id)
         if record is None:
@@ -118,7 +137,7 @@ class RepoService:
             route_count=len(repo_map.routes),
             test_file_count=len(repo_map.test_links),
         )
-        return RepoRecord(summary=summary, repo_map=repo_map)
+        return RepoRecord(summary=summary, repo_map=repo_map, workspace=workspace, files=scan.files)
 
 
 @lru_cache

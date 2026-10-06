@@ -6,7 +6,10 @@ import { PromptForm } from "@/components/PromptForm";
 import { RepoConnect } from "@/components/RepoConnect";
 import { RepoDetails } from "@/components/RepoDetails";
 import { RepoFileList } from "@/components/RepoFileList";
+import { RepoAsk } from "@/components/RepoAsk";
 import { RepoHeader } from "@/components/RepoHeader";
+import { RepoSearch } from "@/components/RepoSearch";
+import { SearchResults } from "@/components/SearchResults";
 import { fetchRepo, type RepoSummary } from "@/lib/api";
 import { useRepoMap } from "@/lib/use-repo-map";
 
@@ -86,6 +89,7 @@ export function Workspace() {
       return (
         <CenteredPage>
           <RepoConnect onConnected={handleConnected} />
+          <PromptForm />
         </CenteredPage>
       );
     case "connected":
@@ -118,34 +122,59 @@ interface ConnectedWorkspaceProps {
   onChangeRepo: () => void;
 }
 
+type DetailView =
+  | { kind: "overview" }
+  | { kind: "file"; path: string }
+  | { kind: "search"; query: string };
+
 function ConnectedWorkspace({ repo, onChangeRepo }: ConnectedWorkspaceProps) {
   const mapState = useRepoMap(repo.repoId);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [view, setView] = useState<DetailView>({ kind: "overview" });
+  const selectedPath = view.kind === "file" ? view.path : null;
+
+  function showOverview() {
+    setView({ kind: "overview" });
+  }
+
+  function selectFile(path: string) {
+    setView({ kind: "file", path });
+  }
 
   return (
     <main className="grid flex-1 lg:h-dvh lg:flex-none lg:grid-cols-[20rem_1fr] lg:grid-rows-1 lg:overflow-hidden">
       <aside className="flex flex-col gap-4 border-b border-border p-4 lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
         <h1 className="text-lg font-semibold tracking-tight">PatchPilot</h1>
         <RepoHeader repo={repo} onChangeRepo={onChangeRepo} />
+        <RepoSearch onSearch={(query) => setView({ kind: "search", query })} />
         <RepoFileList
           files={repo.files}
           fileCount={repo.fileCount}
           selectedPath={selectedPath}
-          onSelect={setSelectedPath}
+          onSelect={selectFile}
         />
       </aside>
 
       <div className="flex flex-col lg:min-h-0">
-        <section aria-label="File details" className="flex-1 p-4 sm:p-6 lg:min-h-0 lg:overflow-y-auto">
-          <RepoDetails
-            repo={repo}
-            mapState={mapState}
-            selectedPath={selectedPath}
-            onClearSelection={() => setSelectedPath(null)}
-          />
+        <section aria-label="Details" className="flex-1 p-4 sm:p-6 lg:min-h-0 lg:overflow-y-auto">
+          {view.kind === "search" ? (
+            <SearchResults
+              key={view.query}
+              repoId={repo.repoId}
+              query={view.query}
+              onSelectFile={selectFile}
+              onClose={showOverview}
+            />
+          ) : (
+            <RepoDetails
+              repo={repo}
+              mapState={mapState}
+              selectedPath={selectedPath}
+              onClearSelection={showOverview}
+            />
+          )}
         </section>
-        <section aria-label="Prompt" className="border-t border-border p-4 sm:p-6">
-          <PromptForm />
+        <section aria-label="Ask" className="border-t border-border p-4 sm:p-6">
+          <RepoAsk repoId={repo.repoId} onSelectFile={selectFile} />
         </section>
       </div>
     </main>

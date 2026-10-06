@@ -84,6 +84,30 @@ export interface RepoMap {
   testLinks: TestLink[];
 }
 
+export interface SearchMatch {
+  path: string;
+  line: number;
+  text: string;
+}
+
+export interface SearchResult {
+  matches: SearchMatch[];
+  isTruncated: boolean;
+}
+
+export interface RankedFile {
+  path: string;
+  score: number;
+  reasons: string[];
+}
+
+export interface AskResponse {
+  answer: string;
+  model: string;
+  latencyMs: number;
+  files: RankedFile[];
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -154,6 +178,40 @@ export function createRepo(url: string, signal?: AbortSignal): Promise<RepoSumma
 
 export function fetchRepo(repoId: string, signal?: AbortSignal): Promise<RepoSummary> {
   return requestJson<RepoSummary>(`/api/repos/${encodeURIComponent(repoId)}`, { signal });
+}
+
+function repoPath(repoId: string, suffix: string): string {
+  return `/api/repos/${encodeURIComponent(repoId)}${suffix}`;
+}
+
+export function fetchRepoSearch(
+  repoId: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<SearchResult> {
+  const params = new URLSearchParams({ q: query });
+  return requestJson<SearchResult>(repoPath(repoId, `/search?${params}`), { signal });
+}
+
+export async function fetchRelevantFiles(
+  repoId: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<RankedFile[]> {
+  const params = new URLSearchParams({ q: query });
+  const body = await requestJson<{ files: RankedFile[] }>(
+    repoPath(repoId, `/relevant?${params}`),
+    { signal },
+  );
+  return body.files;
+}
+
+export function askRepo(
+  repoId: string,
+  question: string,
+  signal?: AbortSignal,
+): Promise<AskResponse> {
+  return postJson<AskResponse>(repoPath(repoId, "/ask"), { question }, signal);
 }
 
 export function fetchRepoMap(repoId: string, signal?: AbortSignal): Promise<RepoMap> {

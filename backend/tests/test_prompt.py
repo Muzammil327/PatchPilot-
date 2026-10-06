@@ -4,7 +4,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.prompt import get_llm_client
+from app.api.llm import get_llm_client
 from app.config import Settings
 from app.llm.client import LLMClient
 from app.main import app

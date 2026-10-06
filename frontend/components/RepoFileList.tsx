@@ -37,6 +37,13 @@ function sortTree(folder: TreeFolder) {
   folder.folders.forEach(sortTree);
 }
 
+function withAncestors(folders: Set<string>, filePath: string): Set<string> {
+  const parts = filePath.split("/").slice(0, -1);
+  const ancestors = parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+  if (ancestors.every((folder) => folders.has(folder))) return folders;
+  return new Set([...folders, ...ancestors]);
+}
+
 function fileName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
@@ -53,6 +60,13 @@ export function RepoFileList({ files, fileCount, selectedPath, onSelect }: RepoF
   const [openFolders, setOpenFolders] = useState<Set<string>>(
     () => new Set(tree.folders.map((folder) => folder.path)),
   );
+  // When a file is selected from elsewhere (search, ask), open its folders so it shows.
+  // Adjusting state during render is React's pattern for reacting to a prop change.
+  const [revealedPath, setRevealedPath] = useState<string | null>(null);
+  if (selectedPath !== revealedPath) {
+    setRevealedPath(selectedPath);
+    if (selectedPath) setOpenFolders((current) => withAncestors(current, selectedPath));
+  }
 
   function handleToggleFolder(path: string) {
     setOpenFolders((current) => {
