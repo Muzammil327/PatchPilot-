@@ -83,27 +83,27 @@ class RepoService:
         return summary
 
     def get(self, repo_id: str) -> RepoSummary:
-        return self._get_record(repo_id).summary
+        return self.get_record(repo_id).summary
 
     def get_map(self, repo_id: str) -> RepoMap:
-        return self._get_record(repo_id).repo_map
+        return self.get_record(repo_id).repo_map
 
     async def search(self, repo_id: str, query: str) -> SearchResult:
-        record = self._get_record(repo_id)
+        record = self.get_record(repo_id)
         return await asyncio.to_thread(search_code, record.workspace, record.files, query)
 
     async def rank(self, repo_id: str, query: str) -> list[RankedFile]:
-        record = self._get_record(repo_id)
+        record = self.get_record(repo_id)
         return await asyncio.to_thread(
             rank_files, record.workspace, record.files, record.repo_map, query
         )
 
     async def build_ask_prompt(self, repo_id: str, question: str) -> AskPrompt:
-        record = self._get_record(repo_id)
+        record = self.get_record(repo_id)
         ranked = await self.rank(repo_id, question)
         return await asyncio.to_thread(build_ask_prompt, record.workspace, ranked, question)
 
-    def _get_record(self, repo_id: str) -> RepoRecord:
+    def get_record(self, repo_id: str) -> RepoRecord:
         record = self._repos.get(repo_id)
         if record is None:
             raise RepoNotFoundError(f"Unknown repo id {repo_id!r}")

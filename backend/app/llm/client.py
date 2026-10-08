@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 import httpx
 
@@ -11,8 +11,11 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 
 ModelRole = Literal["planner", "worker"]
+Message = dict[str, Any]  # one OpenAI-style chat message
 
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+# Providers answer a request they cannot handle (e.g. an unsupported `tools` field) with these.
+REJECTED_REQUEST_STATUS_CODES = frozenset({400, 422})
 RETRY_BASE_DELAY_SECONDS = 0.5
 
 
@@ -22,6 +25,33 @@ class LLMError(Exception):
 
 class LLMNotConfiguredError(LLMError):
     pass
+
+
+class LLMHTTPError(LLMError):
+    def __init__(self, status_code: int):
+        super().__init__(f"Provider returned HTTP {status_code}")
+        self.status_code = status_code
+
+
+class LLMToolsUnsupportedError(LLMError):
+    """The provider rejected a request that carried tool definitions."""
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: str  # raw JSON text, exactly as the model produced it
+
+
+@dataclass(frozen=True)
+class ChatResult:
+    content: str
+    model: str
+    latency_ms: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    tool_calls: list[ToolCall] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -40,44 +70,81 @@ class LLMClient:
         self._settings = settings
         self._transport = transport
 
+    @property
+    def is_configured(self) -> bool:
+        return self._settings.is_llm_configured
+
     def model_for(self, role: ModelRole) -> str:
         return self._settings.model_planner if role == "planner" else self._settings.model_worker
 
     async def complete(
         self, prompt: str, role: ModelRole = "worker", system: str | None = None
     ) -> Completion:
+        messages: list[Message] = [{"role": "system", "content": system}] if system else []
+        messages.append({"role": "user", "content": prompt})
+        result = await self.chat(messages, role=role)
+        return Completion(
+            output=result.content,
+            model=result.model,
+            latency_ms=result.latency_ms,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+        )
+
+    async def chat(
+        self,
+        messages: list[Message],
+        role: ModelRole = "worker",
+        tools: list[dict[str, Any]] | None = None,
+    ) -> ChatResult:
         if not self._settings.is_llm_configured:
             raise LLMNotConfiguredError("Nebius settings are missing")
 
         model = self.model_for(role)
-        messages = [{"role": "system", "content": system}] if system else []
-        messages.append({"role": "user", "content": prompt})
-        payload = {"model": model, "messages": messages}
+        payload: dict[str, Any] = {"model": model, "messages": messages}
+        if tools:
+            payload["tools"] = tools
         started = time.perf_counter()
-        data = await self._post_with_retries("/chat/completions", payload)
+        try:
+            data = await self._post_with_retries("/chat/completions", payload)
+        except LLMHTTPError as exc:
+            if tools and exc.status_code in REJECTED_REQUEST_STATUS_CODES:
+                raise LLMToolsUnsupportedError(str(exc)) from exc
+            raise
         latency_ms = int((time.perf_counter() - started) * 1000)
 
         try:
-            output = data["choices"][0]["message"]["content"] or ""
-        except (KeyError, IndexError, TypeError) as exc:
+            message = data["choices"][0]["message"]
+            content = message.get("content") or ""
+            tool_calls = [
+                ToolCall(
+                    id=str(call.get("id") or f"call_{index}"),
+                    name=call["function"]["name"],
+                    arguments=call["function"].get("arguments") or "{}",
+                )
+                for index, call in enumerate(message.get("tool_calls") or [])
+            ]
+        except (KeyError, IndexError, TypeError, AttributeError) as exc:
             raise LLMError("Unexpected response shape from provider") from exc
 
         usage = data.get("usage") or {}
-        completion = Completion(
-            output=output,
+        result = ChatResult(
+            content=content,
             model=data.get("model", model),
             latency_ms=latency_ms,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
+            tool_calls=tool_calls,
         )
         logger.info(
-            "llm completion model=%s latency_ms=%d prompt_tokens=%s completion_tokens=%s",
-            completion.model,
-            completion.latency_ms,
-            completion.prompt_tokens,
-            completion.completion_tokens,
+            "llm chat model=%s latency_ms=%d prompt_tokens=%s completion_tokens=%s tool_calls=%d",
+            result.model,
+            result.latency_ms,
+            result.prompt_tokens,
+            result.completion_tokens,
+            len(result.tool_calls),
         )
-        return completion
+        return result
 
     async def _post_with_retries(self, path: str, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self._settings.nebius_api_key}"}
@@ -100,7 +167,7 @@ class LLMClient:
                     if response.status_code < 400:
                         return response.json()
                     if is_last or response.status_code not in RETRYABLE_STATUS_CODES:
-                        raise LLMError(f"Provider returned HTTP {response.status_code}")
+                        raise LLMHTTPError(response.status_code)
                     logger.warning(
                         "llm retryable status=%d attempt=%d", response.status_code, attempt
                     )

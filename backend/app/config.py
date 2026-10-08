@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +28,11 @@ class Settings(BaseSettings):
     max_repo_size_mb: int = Field(default=200, ge=1)
     max_scan_files: int = Field(default=5000, ge=1)
     max_file_size_kb: int = Field(default=1024, ge=1)
+
+    # Coding agent. "auto" tries native tool calls and falls back to JSON-in-text.
+    agent_max_steps: int = Field(default=25, ge=1, le=100)
+    agent_timeout_seconds: float = Field(default=300.0, gt=0)
+    agent_tool_mode: Literal["auto", "native", "json"] = "auto"
 
     frontend_origin: str = "http://localhost:3000"
     log_level: str = "INFO"
