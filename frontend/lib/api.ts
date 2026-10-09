@@ -118,6 +118,18 @@ export class ApiError extends Error {
   }
 }
 
+const HTTP_NOT_FOUND = 404;
+const REPO_MISSING_DETAIL = "Repository not found";
+
+/** The backend no longer knows this repo id (its in-memory registry was reset by a restart). */
+export function isRepoMissingError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === HTTP_NOT_FOUND &&
+    error.message === REPO_MISSING_DETAIL
+  );
+}
+
 const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
 
 async function readErrorMessage(response: Response): Promise<string> {

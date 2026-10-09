@@ -11,10 +11,12 @@ type RequestState =
 
 interface RepoConnectProps {
   onConnected: (repo: RepoSummary) => void;
+  initialUrl?: string;
+  notice?: string;
 }
 
-export function RepoConnect({ onConnected }: RepoConnectProps) {
-  const [url, setUrl] = useState("");
+export function RepoConnect({ onConnected, initialUrl = "", notice }: RepoConnectProps) {
+  const [url, setUrl] = useState(initialUrl);
   const [state, setState] = useState<RequestState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
 
@@ -46,6 +48,11 @@ export function RepoConnect({ onConnected }: RepoConnectProps) {
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border p-4 sm:p-6">
       <h2 className="text-lg font-semibold">Connect repository</h2>
+      {notice && (
+        <p role="status" className="rounded-lg border border-border bg-surface p-3 text-sm">
+          {notice}
+        </p>
+      )}
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <label htmlFor="repo-url" className="text-sm font-medium">
           Public GitHub URL

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { PromptForm } from "@/components/PromptForm";
 import { RepoConnect } from "@/components/RepoConnect";
@@ -19,8 +19,11 @@ const REPO_STORAGE_KEY = "patchpilot.repoId";
 
 type WorkspaceState =
   | { status: "restoring" }
-  | { status: "disconnected" }
+  | { status: "disconnected"; notice?: string; lastUrl?: string }
   | { status: "connected"; repo: RepoSummary };
+
+const REPO_MISSING_NOTICE =
+  "The backend restarted and no longer has this repository. Click Connect to clone it again.";
 
 function readStoredRepoId(): string | null {
   try {
@@ -76,6 +79,11 @@ export function Workspace() {
     setState({ status: "disconnected" });
   }
 
+  const handleRepoMissing = useCallback((lastUrl: string) => {
+    writeStoredRepoId(null);
+    setState({ status: "disconnected", notice: REPO_MISSING_NOTICE, lastUrl });
+  }, []);
+
   switch (state.status) {
     case "restoring":
       return (
@@ -88,7 +96,11 @@ export function Workspace() {
     case "disconnected":
       return (
         <CenteredPage>
-          <RepoConnect onConnected={handleConnected} />
+          <RepoConnect
+            onConnected={handleConnected}
+            initialUrl={state.lastUrl}
+            notice={state.notice}
+          />
           <PromptForm />
         </CenteredPage>
       );
@@ -98,6 +110,7 @@ export function Workspace() {
           key={state.repo.repoId}
           repo={state.repo}
           onChangeRepo={handleChangeRepo}
+          onRepoMissing={handleRepoMissing}
         />
       );
   }
@@ -120,6 +133,7 @@ function CenteredPage({ children }: { children: ReactNode }) {
 interface ConnectedWorkspaceProps {
   repo: RepoSummary;
   onChangeRepo: () => void;
+  onRepoMissing: (lastUrl: string) => void;
 }
 
 type DetailView =
@@ -127,10 +141,16 @@ type DetailView =
   | { kind: "file"; path: string }
   | { kind: "search"; query: string };
 
-function ConnectedWorkspace({ repo, onChangeRepo }: ConnectedWorkspaceProps) {
+function ConnectedWorkspace({ repo, onChangeRepo, onRepoMissing }: ConnectedWorkspaceProps) {
   const mapState = useRepoMap(repo.repoId);
   const [view, setView] = useState<DetailView>({ kind: "overview" });
   const selectedPath = view.kind === "file" ? view.path : null;
+  const handleRepoMissing = useCallback(() => onRepoMissing(repo.url), [onRepoMissing, repo.url]);
+  const isMapRepoMissing = mapState.status === "error" && mapState.isRepoMissing;
+
+  useEffect(() => {
+    if (isMapRepoMissing) handleRepoMissing();
+  }, [isMapRepoMissing, handleRepoMissing]);
 
   function showOverview() {
     setView({ kind: "overview" });
@@ -163,6 +183,7 @@ function ConnectedWorkspace({ repo, onChangeRepo }: ConnectedWorkspaceProps) {
               query={view.query}
               onSelectFile={selectFile}
               onClose={showOverview}
+              onRepoMissing={handleRepoMissing}
             />
           ) : (
             <RepoDetails
@@ -174,7 +195,11 @@ function ConnectedWorkspace({ repo, onChangeRepo }: ConnectedWorkspaceProps) {
           )}
         </section>
         <section aria-label="Ask" className="border-t border-border p-4 sm:p-6">
-          <RepoAsk repoId={repo.repoId} onSelectFile={selectFile} />
+          <RepoAsk
+            repoId={repo.repoId}
+            onSelectFile={selectFile}
+            onRepoMissing={handleRepoMissing}
+          />
         </section>
       </div>
     </main>

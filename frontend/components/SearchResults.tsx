@@ -6,13 +6,14 @@ import {
   ApiError,
   fetchRelevantFiles,
   fetchRepoSearch,
+  isRepoMissingError,
   type RankedFile,
   type SearchResult,
 } from "@/lib/api";
 
 type ResultsState =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; isRepoMissing: boolean }
   | { status: "success"; ranked: RankedFile[]; search: SearchResult };
 
 interface SearchResultsProps {
@@ -20,10 +21,22 @@ interface SearchResultsProps {
   query: string;
   onSelectFile: (path: string) => void;
   onClose: () => void;
+  onRepoMissing: () => void;
 }
 
-export function SearchResults({ repoId, query, onSelectFile, onClose }: SearchResultsProps) {
+export function SearchResults({
+  repoId,
+  query,
+  onSelectFile,
+  onClose,
+  onRepoMissing,
+}: SearchResultsProps) {
   const [state, setState] = useState<ResultsState>({ status: "loading" });
+  const isRepoMissing = state.status === "error" && state.isRepoMissing;
+
+  useEffect(() => {
+    if (isRepoMissing) onRepoMissing();
+  }, [isRepoMissing, onRepoMissing]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -35,7 +48,7 @@ export function SearchResults({ repoId, query, onSelectFile, onClose }: SearchRe
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         const message = error instanceof ApiError ? error.message : "Search failed.";
-        setState({ status: "error", message });
+        setState({ status: "error", message, isRepoMissing: isRepoMissingError(error) });
       });
     return () => controller.abort();
   }, [repoId, query]);

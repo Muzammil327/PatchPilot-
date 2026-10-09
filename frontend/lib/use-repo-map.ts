@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-import { ApiError, fetchRepoMap, type FileMap, type Route } from "@/lib/api";
+import {
+  ApiError,
+  fetchRepoMap,
+  isRepoMissingError,
+  type FileMap,
+  type Route,
+} from "@/lib/api";
 
 export interface RepoMapIndex {
   byPath: Map<string, FileMap>;
@@ -13,7 +19,7 @@ export interface RepoMapIndex {
 
 export type RepoMapState =
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; isRepoMissing: boolean }
   | { status: "success"; index: RepoMapIndex };
 
 export function useRepoMap(repoId: string): RepoMapState {
@@ -45,7 +51,7 @@ export function useRepoMap(repoId: string): RepoMapState {
         if (controller.signal.aborted) return;
         const message =
           error instanceof ApiError ? error.message : "Could not load the code map.";
-        setState({ status: "error", message });
+        setState({ status: "error", message, isRepoMissing: isRepoMissingError(error) });
       });
     return () => controller.abort();
   }, [repoId]);

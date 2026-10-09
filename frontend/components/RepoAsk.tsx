@@ -2,7 +2,7 @@
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
-import { ApiError, askRepo, type AskResponse } from "@/lib/api";
+import { ApiError, askRepo, isRepoMissingError, type AskResponse } from "@/lib/api";
 
 const MAX_QUESTION_LENGTH = 1000;
 
@@ -15,9 +15,10 @@ type AskState =
 interface RepoAskProps {
   repoId: string;
   onSelectFile: (path: string) => void;
+  onRepoMissing: () => void;
 }
 
-export function RepoAsk({ repoId, onSelectFile }: RepoAskProps) {
+export function RepoAsk({ repoId, onSelectFile, onRepoMissing }: RepoAskProps) {
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<AskState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
@@ -41,6 +42,10 @@ export function RepoAsk({ repoId, onSelectFile }: RepoAskProps) {
       setState({ status: "success", result });
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (isRepoMissingError(error)) {
+        onRepoMissing();
+        return;
+      }
       const message =
         error instanceof ApiError ? error.message : "Something went wrong. Please try again.";
       setState({ status: "error", message });
