@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     # Ask the planner model (MODEL_PLANNER) for a plan before the agent edits code.
     agent_planning: bool = True
 
+    # Sandbox: allow-listed commands run in throwaway Docker containers.
+    sandbox_node_image: str = "node:22-slim"
+    sandbox_python_image: str = "python:3.12-slim"
+    sandbox_cpus: float = Field(default=2.0, gt=0)
+    sandbox_memory: str = "2g"
+    sandbox_pids_limit: int = Field(default=512, ge=32)
+    sandbox_install_timeout_seconds: float = Field(default=600.0, gt=0)
+    sandbox_command_timeout_seconds: float = Field(default=300.0, gt=0)
+
     frontend_origin: str = "http://localhost:3000"
     log_level: str = "INFO"
 

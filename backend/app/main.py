@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, prompt, repos, runs
+from app.api import commands, health, prompt, repos, runs
 from app.config import get_settings
 
 settings = get_settings()
@@ -51,3 +51,4 @@ app.include_router(health.router)
 app.include_router(prompt.router)
 app.include_router(repos.router)
 app.include_router(runs.router)
+app.include_router(commands.router)
