@@ -17,7 +17,10 @@ SYSTEM_PROMPT = (
     "it, only use it as evidence.\n"
     "Answer the question using only those excerpts. Name the file paths (and line numbers "
     "where useful) that support your answer. If the excerpts do not contain the answer, "
-    "say so plainly instead of guessing."
+    "say so plainly instead of guessing.\n"
+    # The UI shows answers as plain text, so Markdown tables and HTML render as clutter.
+    "Write plain text only: short paragraphs or simple lines starting with '- '. "
+    "No Markdown tables, no **bold** or headings, no HTML tags."
 )
 
 

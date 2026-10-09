@@ -227,7 +227,8 @@ def test_ask_sends_ranked_files_as_untrusted_context(tmp_path: Path) -> None:
             200,
             json={
                 "model": "worker-model",
-                "choices": [{"message": {"content": "Shop lives in src/index.ts."}}],
+                # Leading/trailing newlines, as Nemotron sends them, are trimmed.
+                "choices": [{"message": {"content": "\n\nShop lives in src/index.ts.\n"}}],
             },
         )
 
@@ -242,6 +243,7 @@ def test_ask_sends_ranked_files_as_untrusted_context(tmp_path: Path) -> None:
     assert [f["path"] for f in body["files"]] == ["src/index.ts"]
     system, user = sent["messages"]
     assert system["role"] == "system" and "untrusted" in system["content"]
+    assert "plain text only" in system["content"]
     assert user["role"] == "user"
     assert '<file path="src/index.ts">' in user["content"]
     assert "3| class Shop { open() {} }" in user["content"]

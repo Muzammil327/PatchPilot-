@@ -298,7 +298,7 @@ async def ask_repo(
     except LLMError as exc:
         raise to_llm_http_error(exc) from exc
     return AskResponse(
-        answer=completion.output,
+        answer=completion.output.strip(),
         model=completion.model,
         latency_ms=completion.latency_ms,
         files=to_ranked_responses(ask_prompt.files),
