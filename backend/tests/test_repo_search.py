@@ -26,6 +26,11 @@ def write_repo(root: Path, files: dict[str, str]) -> list[ScannedFile]:
         ("parseHTTPResponse", ["parse", "http", "response"]),
         ("heat_risk score", ["heat", "risk", "score"]),
         ("heat heat HEAT", ["heat"]),
+        (
+            "The total() function in lib/cart.ts returns 0",
+            ["total", "function", "lib", "cart", "returns"],
+        ),
+        ("fix app.module.json and style.css", ["fix", "app", "module", "style"]),
         ("a is to", []),
     ],
 )
@@ -119,6 +124,33 @@ def test_rank_lists_a_reason_once_but_scores_every_term(tmp_path: Path) -> None:
 
     assert both.reasons.count("symbol: heatRiskLevel") == 1
     assert both.score > one.score
+
+
+def test_rank_skips_lockfiles_and_finds_the_named_file(tmp_path: Path) -> None:
+    lockfile = '{"name": "mini-shop", "lockfileVersion": 3, "lib": "ts ts ts total cart"}\n' * 50
+    files = write_repo(
+        tmp_path,
+        {
+            "package-lock.json": lockfile,
+            "frontend/yarn.lock": "total cart lib\n" * 50,
+            "lib/cart.ts": "export function total(cart) {\n  return 0\n}\n",
+            "app/page.tsx": (
+                'import { total } from "@/lib/cart"\nexport default function Home() {}\n'
+            ),
+        },
+    )
+    repo_map = build_repo_map(tmp_path, files)
+    issue = (
+        "The total() function in lib/cart.ts returns 0 instead of summing item prices. "
+        "The home page shows Total $0, but it should be $70."
+    )
+
+    ranked = rank_files(tmp_path, files, repo_map, issue)
+
+    paths = [r.path for r in ranked]
+    # The issue names both the cart module and the home page, so both lead the ranking.
+    assert set(paths[:2]) == {"lib/cart.ts", "app/page.tsx"}
+    assert "package-lock.json" not in paths and "frontend/yarn.lock" not in paths
 
 
 def test_rank_returns_nothing_for_filler_only_query(tmp_path: Path) -> None:

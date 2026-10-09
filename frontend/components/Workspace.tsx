@@ -9,6 +9,8 @@ import { RepoFileList } from "@/components/RepoFileList";
 import { RepoAsk } from "@/components/RepoAsk";
 import { RepoHeader } from "@/components/RepoHeader";
 import { RepoSearch } from "@/components/RepoSearch";
+import { RunIssueForm } from "@/components/RunIssueForm";
+import { RunView } from "@/components/RunView";
 import { SearchResults } from "@/components/SearchResults";
 import { fetchRepo, type RepoSummary } from "@/lib/api";
 import { useRepoMap } from "@/lib/use-repo-map";
@@ -139,11 +141,21 @@ interface ConnectedWorkspaceProps {
 type DetailView =
   | { kind: "overview" }
   | { kind: "file"; path: string }
-  | { kind: "search"; query: string };
+  | { kind: "search"; query: string }
+  | { kind: "run"; runId: string };
+
+type BottomTab = "ask" | "fix";
+
+const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
+  { id: "ask", label: "Ask" },
+  { id: "fix", label: "Fix an issue" },
+];
 
 function ConnectedWorkspace({ repo, onChangeRepo, onRepoMissing }: ConnectedWorkspaceProps) {
   const mapState = useRepoMap(repo.repoId);
   const [view, setView] = useState<DetailView>({ kind: "overview" });
+  const [bottomTab, setBottomTab] = useState<BottomTab>("ask");
+  const [latestRunId, setLatestRunId] = useState<string | null>(null);
   const selectedPath = view.kind === "file" ? view.path : null;
   const handleRepoMissing = useCallback(() => onRepoMissing(repo.url), [onRepoMissing, repo.url]);
   const isMapRepoMissing = mapState.status === "error" && mapState.isRepoMissing;
@@ -158,6 +170,11 @@ function ConnectedWorkspace({ repo, onChangeRepo, onRepoMissing }: ConnectedWork
 
   function selectFile(path: string) {
     setView({ kind: "file", path });
+  }
+
+  function showRun(runId: string) {
+    setLatestRunId(runId);
+    setView({ kind: "run", runId });
   }
 
   return (
@@ -185,6 +202,15 @@ function ConnectedWorkspace({ repo, onChangeRepo, onRepoMissing }: ConnectedWork
               onClose={showOverview}
               onRepoMissing={handleRepoMissing}
             />
+          ) : view.kind === "run" ? (
+            <RunView
+              key={view.runId}
+              repoId={repo.repoId}
+              runId={view.runId}
+              onSelectFile={selectFile}
+              onRepoMissing={handleRepoMissing}
+              onClose={showOverview}
+            />
           ) : (
             <RepoDetails
               repo={repo}
@@ -194,12 +220,49 @@ function ConnectedWorkspace({ repo, onChangeRepo, onRepoMissing }: ConnectedWork
             />
           )}
         </section>
-        <section aria-label="Ask" className="border-t border-border p-4 sm:p-6">
-          <RepoAsk
-            repoId={repo.repoId}
-            onSelectFile={selectFile}
-            onRepoMissing={handleRepoMissing}
-          />
+        <section aria-label="Ask or fix" className="flex flex-col gap-3 border-t border-border p-4 sm:p-6">
+          <div role="tablist" aria-label="Assistant mode" className="flex gap-1">
+            {BOTTOM_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                id={`tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={bottomTab === tab.id}
+                aria-controls={`panel-${tab.id}`}
+                onClick={() => setBottomTab(tab.id)}
+                className={`rounded-md px-3 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent ${
+                  bottomTab === tab.id ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {/* Both panels stay mounted so an answer or a draft survives switching tabs. */}
+          <div id="panel-ask" role="tabpanel" aria-labelledby="tab-ask" hidden={bottomTab !== "ask"}>
+            <RepoAsk
+              repoId={repo.repoId}
+              onSelectFile={selectFile}
+              onRepoMissing={handleRepoMissing}
+            />
+          </div>
+          <div id="panel-fix" role="tabpanel" aria-labelledby="tab-fix" hidden={bottomTab !== "fix"}>
+            <RunIssueForm
+              repoId={repo.repoId}
+              onRunStarted={showRun}
+              onRepoMissing={handleRepoMissing}
+            />
+            {latestRunId && view.kind !== "run" && (
+              <button
+                type="button"
+                onClick={() => showRun(latestRunId)}
+                className="mt-2 text-sm text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                View latest run
+              </button>
+            )}
+          </div>
         </section>
       </div>
     </main>

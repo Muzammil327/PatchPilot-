@@ -10,6 +10,9 @@
   --accent-foreground: #0a0a0a;
   --danger: #b91c1c;
   --danger-surface: #fef2f2;
+  /* Diff line backgrounds: tinted green for added, tinted red for removed. */
+  --diff-add: #e6f4d7;
+  --diff-remove: #fde4e4;
 }
 
 @theme inline {
@@ -22,6 +25,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-danger: var(--danger);
   --color-danger-surface: var(--danger-surface);
+  --color-diff-add: var(--diff-add);
+  --color-diff-remove: var(--diff-remove);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -35,6 +40,8 @@
     --border: #27272a;
     --danger: #f87171;
     --danger-surface: #2a1215;
+    --diff-add: #16260a;
+    --diff-remove: #2d1214;
   }
 }
 

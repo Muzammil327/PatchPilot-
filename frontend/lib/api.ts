@@ -108,6 +108,38 @@ export interface AskResponse {
   files: RankedFile[];
 }
 
+export type RunStatus = "running" | "succeeded" | "no_changes" | "failed";
+
+export type RunEventType =
+  | "started"
+  | "model_message"
+  | "tool_call"
+  | "tool_result"
+  | "finished"
+  | "failed";
+
+export interface RunEvent {
+  seq: number;
+  type: RunEventType;
+  message: string;
+  detail: string | null;
+  timestamp: string;
+}
+
+export interface AgentRun {
+  runId: string;
+  repoId: string;
+  issue: string;
+  status: RunStatus;
+  createdAt: string;
+  finishedAt: string | null;
+  steps: number;
+  summary: string;
+  diff: string;
+  error: string | null;
+  events: RunEvent[];
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -127,6 +159,17 @@ export function isRepoMissingError(error: unknown): boolean {
     error instanceof ApiError &&
     error.status === HTTP_NOT_FOUND &&
     error.message === REPO_MISSING_DETAIL
+  );
+}
+
+const RUN_MISSING_DETAIL = "Run not found";
+
+/** The backend no longer has this run (runs are in memory and reset on restart). */
+export function isRunMissingError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === HTTP_NOT_FOUND &&
+    error.message === RUN_MISSING_DETAIL
   );
 }
 
@@ -224,6 +267,20 @@ export function askRepo(
   signal?: AbortSignal,
 ): Promise<AskResponse> {
   return postJson<AskResponse>(repoPath(repoId, "/ask"), { question }, signal);
+}
+
+export function startRun(
+  repoId: string,
+  issue: string,
+  signal?: AbortSignal,
+): Promise<{ runId: string; status: RunStatus }> {
+  return postJson(repoPath(repoId, "/runs"), { issue }, signal);
+}
+
+export function fetchRun(repoId: string, runId: string, signal?: AbortSignal): Promise<AgentRun> {
+  return requestJson<AgentRun>(repoPath(repoId, `/runs/${encodeURIComponent(runId)}`), {
+    signal,
+  });
 }
 
 export function fetchRepoMap(repoId: string, signal?: AbortSignal): Promise<RepoMap> {

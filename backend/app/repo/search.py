@@ -32,6 +32,19 @@ STOP_WORDS = frozenset(
     }
 )  # fmt: skip
 
+# "lib/cart.ts" splits into lib/cart/ts; an extension matches almost every file.
+EXTENSION_WORDS = frozenset(
+    {"ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "json", "md", "css", "yaml", "yml"}
+)
+
+# Machine-written and huge, so they match every term without being relevant.
+LOCKFILE_NAMES = frozenset(
+    {
+        "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
+        "poetry.lock", "uv.lock", "Cargo.lock",
+    }
+)  # fmt: skip
+
 CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 WORD = re.compile(r"[A-Za-z0-9]+")
 
@@ -59,14 +72,24 @@ class RankedFile:
 
 
 def query_terms(query: str) -> list[str]:
-    """Lowercased search terms: words split on camelCase/snake_case, minus filler words."""
+    """Lowercased search terms: words split on camelCase/snake_case, minus filler words
+    and file extensions."""
     terms: list[str] = []
     for word in WORD.findall(query):
         for part in CAMEL_BOUNDARY.split(word):
             term = part.lower()
-            if len(term) >= MIN_TERM_LENGTH and term not in STOP_WORDS and term not in terms:
+            if (
+                len(term) >= MIN_TERM_LENGTH
+                and term not in STOP_WORDS
+                and term not in EXTENSION_WORDS
+                and term not in terms
+            ):
                 terms.append(term)
     return terms
+
+
+def is_lockfile(path: str) -> bool:
+    return path.rsplit("/", 1)[-1] in LOCKFILE_NAMES
 
 
 def read_text(workspace: Path, path: str) -> str | None:
@@ -128,6 +151,8 @@ def rank_files(
 
     for scanned in files:
         path = scanned.path
+        if is_lockfile(path):
+            continue
         path_lower = path.lower()
         file_map = maps_by_path.get(path)
         text = read_text(workspace, path)

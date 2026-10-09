@@ -158,6 +158,7 @@ def test_native_run_edits_code_and_returns_diff(repo_service: RepoService) -> No
     assert {tool["function"]["name"] for tool in first["tools"]} >= {"read_file", "replace_code"}
     system, user = first["messages"]
     assert "untrusted" in system["content"]
+    assert "plain text" in system["content"]
     assert user["content"].startswith("Issue:\nTotal should count the items")
     tool_message = model.requests[1]["messages"][-1]
     assert tool_message["role"] == "tool" and "1| export function total" in tool_message["content"]
