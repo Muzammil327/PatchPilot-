@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     agent_max_steps: int = Field(default=25, ge=1, le=100)
     agent_timeout_seconds: float = Field(default=300.0, gt=0)
     agent_tool_mode: Literal["auto", "native", "json"] = "auto"
+    # Ask the planner model (MODEL_PLANNER) for a plan before the agent edits code.
+    agent_planning: bool = True
 
     frontend_origin: str = "http://localhost:3000"
     log_level: str = "INFO"

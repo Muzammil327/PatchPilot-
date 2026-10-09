@@ -1,13 +1,15 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from app.agent.errors import ToolError
 from app.agent.orchestrator import AgentLimits, AgentRunner
+from app.agent.planner import PlanningFailedError, create_plan, format_plan
 from app.agent.runs import Run, RunStore
 from app.agent.tools import WorkspaceTools
 from app.agent.workspace_git import reset_workspace, run_git, start_run_branch
 from app.config import Settings
-from app.llm.client import LLMClient
+from app.llm.client import LLMClient, LLMError
 from app.repo.search import RankedFile
 from app.repo.service import BYTES_PER_KB, RepoService, RepoSummary
 
@@ -49,6 +51,24 @@ class RunService:
         self.repos.get_record(repo_id)
         return self.store.get(repo_id, run_id)
 
+    async def plan_run(
+        self, run: Run, llm: LLMClient, context: str, workspace: Path, ranked: list[RankedFile]
+    ) -> str:
+        """Ask the planner for a plan and add it to the agent's context.
+
+        A failed plan is not fatal: the worker agent can still explore on its own.
+        """
+        try:
+            plan = await create_plan(llm, context, workspace, ranked, run.issue)
+        except (PlanningFailedError, LLMError) as exc:
+            logger.warning("run %s planning failed: %s", run.run_id, exc)
+            run.add_event("model_message", "Planning failed; continuing without a plan")
+            return context
+        run.plan = plan
+        plan_text = format_plan(plan)
+        run.add_event("plan", "Plan ready", plan_text)
+        return f"{context}\n\nPlan from the planner (verify it against the code):\n{plan_text}"
+
     async def execute(self, run: Run, llm: LLMClient) -> None:
         """Run the agent to completion. Never raises: every outcome is recorded on the run."""
         try:
@@ -60,6 +80,9 @@ class RunService:
             await asyncio.to_thread(start_run_branch, workspace, run.run_id)
             ranked = await self.repos.rank(run.repo_id, run.issue)
             context = build_run_context(record.summary, run.issue, ranked)
+            run.add_event("started", "Agent started", context)
+            if self.settings.agent_planning:
+                context = await self.plan_run(run, llm, context, workspace, ranked)
         except ToolError as exc:
             logger.error("run %s setup failed: %s", run.run_id, exc)
             run.fail("Could not prepare the repository workspace")

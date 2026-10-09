@@ -112,6 +112,7 @@ export type RunStatus = "running" | "succeeded" | "no_changes" | "failed";
 
 export type RunEventType =
   | "started"
+  | "plan"
   | "model_message"
   | "tool_call"
   | "tool_result"
@@ -126,6 +127,13 @@ export interface RunEvent {
   timestamp: string;
 }
 
+export interface AgentPlan {
+  rootCause: string;
+  filesToInspect: string[];
+  steps: string[];
+  testsToAdd: string[];
+}
+
 export interface AgentRun {
   runId: string;
   repoId: string;
@@ -137,6 +145,7 @@ export interface AgentRun {
   summary: string;
   diff: string;
   error: string | null;
+  plan: AgentPlan | null;
   events: RunEvent[];
 }
 

@@ -109,7 +109,7 @@ class AgentRunner:
         self.call_counts: dict[str, int] = {}
 
     async def run(self, run: Run, context: str) -> None:
-        run.add_event("started", "Agent started", context)
+        """Run the loop to completion; the caller has already recorded the start."""
         try:
             summary = await asyncio.wait_for(
                 self.loop(run, context), timeout=self.limits.timeout_seconds

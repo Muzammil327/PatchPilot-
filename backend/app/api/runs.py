@@ -49,6 +49,13 @@ class RunEventResponse(CamelModel):
     timestamp: str
 
 
+class PlanResponse(CamelModel):
+    root_cause: str
+    files_to_inspect: list[str]
+    steps: list[str]
+    tests_to_add: list[str]
+
+
 class RunResponse(CamelModel):
     run_id: str
     repo_id: str
@@ -60,6 +67,7 @@ class RunResponse(CamelModel):
     summary: str
     diff: str
     error: str | None
+    plan: PlanResponse | None
     events: list[RunEventResponse]
 
 
@@ -90,6 +98,16 @@ def to_run_response(run: Run) -> RunResponse:
         summary=run.summary,
         diff=run.diff,
         error=run.error,
+        plan=(
+            PlanResponse(
+                root_cause=run.plan.root_cause,
+                files_to_inspect=run.plan.files_to_inspect,
+                steps=run.plan.steps,
+                tests_to_add=run.plan.tests_to_add,
+            )
+            if run.plan
+            else None
+        ),
         events=[
             RunEventResponse(
                 seq=event.seq,

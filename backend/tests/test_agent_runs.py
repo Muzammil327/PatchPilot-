@@ -92,6 +92,7 @@ def repo_service(tmp_path: Path) -> RepoService:
     store = RunStore()
     app.dependency_overrides[get_repo_service] = lambda: service
     app.dependency_overrides[get_run_store] = lambda: store
+    use_agent_settings(service)
     return service
 
 
@@ -112,7 +113,8 @@ def use_model(model: ScriptedModel | None, **overrides: Any) -> None:
 
 
 def use_agent_settings(repo_service: RepoService, **overrides: Any) -> None:
-    settings = Settings(_env_file=None, **overrides)
+    # Planning is off unless a test asks for it, so scripted replies map to agent steps.
+    settings = Settings(_env_file=None, **{"agent_planning": False, **overrides})
     store = app.dependency_overrides[get_run_store]()
     app.dependency_overrides[get_run_service] = lambda: RunService(repo_service, store, settings)
 
@@ -324,3 +326,80 @@ def test_parse_json_action(content: str, expected: tuple[str, str] | None) -> No
         kind, value = expected
         assert action is not None
         assert getattr(action, kind) == value
+
+
+PLAN_JSON = json.dumps(
+    {
+        "rootCause": "total() in src/cart.ts returns 0 without summing",
+        "filesToInspect": ["src/cart.ts"],
+        "steps": ["Read src/cart.ts", "Return the item count from total()"],
+        "testsToAdd": ["total([a, b]) returns 2"],
+    }
+)
+
+
+def test_planner_plan_reaches_the_agent_and_the_run(repo_service: RepoService) -> None:
+    repo_id = connect()
+    use_agent_settings(repo_service, agent_planning=True)
+    model = ScriptedModel(
+        text_reply("Here is the plan:\n```json\n" + PLAN_JSON + "\n```"),
+        tool_call_reply(
+            (
+                "replace_code",
+                {"path": "src/cart.ts", "old": "return 0", "new": "return items.length"},
+            )
+        ),
+        text_reply("Total now counts items."),
+    )
+    use_model(model)
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "succeeded"
+    assert run["plan"] == {
+        "rootCause": "total() in src/cart.ts returns 0 without summing",
+        "filesToInspect": ["src/cart.ts"],
+        "steps": ["Read src/cart.ts", "Return the item count from total()"],
+        "testsToAdd": ["total([a, b]) returns 2"],
+    }
+    assert [event["type"] for event in run["events"]][:2] == ["started", "plan"]
+    planner_request, first_agent_request = model.requests[0], model.requests[1]
+    assert planner_request["model"] == "planner-model" and "tools" not in planner_request
+    assert "untrusted" in planner_request["messages"][0]["content"]
+    assert '<file path="src/cart.ts">' in planner_request["messages"][1]["content"]
+    assert first_agent_request["model"] == "worker-model"
+    agent_context = first_agent_request["messages"][1]["content"]
+    assert "Plan from the planner" in agent_context
+    assert "1. Read src/cart.ts" in agent_context
+
+
+def test_invalid_plan_is_retried_then_run_continues_without_plan(
+    repo_service: RepoService,
+) -> None:
+    repo_id = connect()
+    use_agent_settings(repo_service, agent_planning=True)
+    model = ScriptedModel(
+        text_reply("I think the bug is in the cart."),
+        text_reply('{"rootCause": "", "steps": []}'),
+        text_reply("Nothing to change."),
+    )
+    use_model(model)
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "no_changes"
+    assert run["plan"] is None
+    assert "That reply was not a valid plan" in model.requests[1]["messages"][-1]["content"]
+    assert any("continuing without a plan" in event["message"] for event in run["events"])
+    assert "Plan from the planner" not in model.requests[2]["messages"][1]["content"]
+
+
+def test_planner_error_does_not_fail_the_run(repo_service: RepoService) -> None:
+    repo_id = connect()
+    use_agent_settings(repo_service, agent_planning=True)
+    use_model(ScriptedModel(httpx.Response(500), text_reply("Nothing to change.")))
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "no_changes"
+    assert any("continuing without a plan" in event["message"] for event in run["events"])

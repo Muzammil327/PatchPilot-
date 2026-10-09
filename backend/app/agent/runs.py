@@ -4,8 +4,12 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Literal
 
+from app.agent.planner import AgentPlan
+
 RunStatus = Literal["running", "succeeded", "no_changes", "failed"]
-EventType = Literal["started", "model_message", "tool_call", "tool_result", "finished", "failed"]
+EventType = Literal[
+    "started", "plan", "model_message", "tool_call", "tool_result", "finished", "failed"
+]
 
 MAX_EVENT_DETAIL_CHARS = 2000
 
@@ -48,6 +52,7 @@ class Run:
     diff: str = ""
     summary: str = ""
     error: str | None = None
+    plan: AgentPlan | None = None
 
     @property
     def is_active(self) -> bool:

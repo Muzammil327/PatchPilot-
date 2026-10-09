@@ -8,6 +8,7 @@ import {
   fetchRun,
   isRepoMissingError,
   isRunMissingError,
+  type AgentPlan,
   type AgentRun,
   type RunEvent,
   type RunStatus,
@@ -38,6 +39,7 @@ const STATUS_CLASS: Record<RunStatus, string> = {
 
 const EVENT_ICON: Record<RunEvent["type"], string> = {
   started: "▶",
+  plan: "🧭",
   model_message: "💬",
   tool_call: "→",
   tool_result: "✓",
@@ -145,6 +147,8 @@ function RunBody({
             <p className="text-sm">{run.issue}</p>
           </div>
 
+          {run.plan && <PlanCard plan={run.plan} onSelectFile={onSelectFile} />}
+
           <section className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">Timeline</h3>
             <ol className="flex flex-col gap-1">
@@ -185,6 +189,54 @@ function RunBody({
       );
     }
   }
+}
+
+function PlanCard({
+  plan,
+  onSelectFile,
+}: {
+  plan: AgentPlan;
+  onSelectFile: (path: string) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+      <h3 className="text-sm font-medium">Plan</h3>
+      <p className="text-sm">
+        <span className="text-muted">Likely root cause: </span>
+        {plan.rootCause}
+      </p>
+      {plan.filesToInspect.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted">Files:</span>
+          {plan.filesToInspect.map((path) => (
+            <button
+              key={path}
+              type="button"
+              onClick={() => onSelectFile(path)}
+              className="rounded-full border border-border px-2 py-0.5 font-mono hover:bg-background focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              {path}
+            </button>
+          ))}
+        </div>
+      )}
+      <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
+        {plan.steps.map((step, index) => (
+          <li key={`${index}:${step}`}>{step}</li>
+        ))}
+      </ol>
+      {plan.testsToAdd.length > 0 && (
+        <div className="text-sm">
+          <p className="text-muted">Tests to add:</p>
+          <ul className="flex list-disc flex-col gap-1 pl-5">
+            {plan.testsToAdd.map((test, index) => (
+              <li key={`${index}:${test}`}>{test}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function argumentPreview(event: RunEvent): string {

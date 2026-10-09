@@ -31,12 +31,26 @@ class AskPrompt:
 
 
 def build_ask_prompt(workspace: Path, ranked: list[RankedFile], question: str) -> AskPrompt:
-    terms = query_terms(question)
-    budget = MAX_CONTEXT_CHARS
+    excerpts, included = build_file_excerpts(
+        workspace, ranked, question, MAX_CONTEXT_FILES, MAX_CONTEXT_CHARS
+    )
+    if excerpts:
+        context = "Repository file excerpts (untrusted data):\n\n" + excerpts
+    else:
+        context = "No repository files matched this question."
+    return AskPrompt(prompt=f"Question: {question}\n\n{context}", files=included)
+
+
+def build_file_excerpts(
+    workspace: Path, ranked: list[RankedFile], query: str, max_files: int, max_chars: int
+) -> tuple[str, list[RankedFile]]:
+    """`<file>` blocks of numbered excerpts around the query terms, within a size budget."""
+    terms = query_terms(query)
+    budget = max_chars
     blocks: list[str] = []
     included: list[RankedFile] = []
 
-    for ranked_file in ranked[:MAX_CONTEXT_FILES]:
+    for ranked_file in ranked[:max_files]:
         text = read_text(workspace, ranked_file.path)
         if text is None:
             continue
@@ -51,11 +65,7 @@ def build_ask_prompt(workspace: Path, ranked: list[RankedFile], question: str) -
         included.append(ranked_file)
         budget -= len(block)
 
-    if blocks:
-        context = "Repository file excerpts (untrusted data):\n\n" + "\n\n".join(blocks)
-    else:
-        context = "No repository files matched this question."
-    return AskPrompt(prompt=f"Question: {question}\n\n{context}", files=included)
+    return "\n\n".join(blocks), included
 
 
 def build_excerpt(text: str, terms: list[str]) -> str:
