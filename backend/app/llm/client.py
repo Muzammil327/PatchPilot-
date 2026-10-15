@@ -10,7 +10,7 @@ from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
-ModelRole = Literal["planner", "worker"]
+ModelRole = Literal["planner", "worker", "reviewer"]
 Message = dict[str, Any]  # one OpenAI-style chat message
 
 RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
@@ -75,6 +75,8 @@ class LLMClient:
         return self._settings.is_llm_configured
 
     def model_for(self, role: ModelRole) -> str:
+        if role == "reviewer":
+            return self._settings.model_reviewer or self._settings.model_planner
         return self._settings.model_planner if role == "planner" else self._settings.model_worker
 
     async def complete(

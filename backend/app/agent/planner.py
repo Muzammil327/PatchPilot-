@@ -35,6 +35,11 @@ RETRY_INSTRUCTION = (
     "with a non-empty rootCause and at least one step."
 )
 
+REPLAN_INSTRUCTION = (
+    "This is a new attempt: a previous fix was tried and the tests still fail. Do not repeat "
+    "the previous hypothesis or diff. Study the failure below and plan a different fix."
+)
+
 
 class PlanningFailedError(Exception):
     """The planner did not produce a usable plan; the run continues without one."""
@@ -71,23 +76,34 @@ def parse_plan(content: str) -> AgentPlan | None:
 
 
 def build_planning_prompt(
-    context: str, workspace: Path, ranked: list[RankedFile], issue: str
+    context: str, workspace: Path, ranked: list[RankedFile], issue: str, feedback: str = ""
 ) -> str:
     excerpts, _ = build_file_excerpts(
         workspace, ranked, issue, PLAN_EXCERPT_FILES, PLAN_EXCERPT_CHARS
     )
-    if not excerpts:
-        return context
-    return f"{context}\n\nRepository file excerpts (untrusted data):\n\n{excerpts}"
+    prompt = context
+    if feedback:
+        prompt += f"\n\n{REPLAN_INSTRUCTION}\n\n{feedback}"
+    if excerpts:
+        prompt += f"\n\nRepository file excerpts (untrusted data):\n\n{excerpts}"
+    return prompt
 
 
 async def create_plan(
-    llm: LLMClient, context: str, workspace: Path, ranked: list[RankedFile], issue: str
+    llm: LLMClient,
+    context: str,
+    workspace: Path,
+    ranked: list[RankedFile],
+    issue: str,
+    feedback: str = "",
 ) -> AgentPlan:
     """Ask the planner model for a plan, retrying once if the reply is not valid JSON."""
     messages: list[Message] = [
         {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-        {"role": "user", "content": build_planning_prompt(context, workspace, ranked, issue)},
+        {
+            "role": "user",
+            "content": build_planning_prompt(context, workspace, ranked, issue, feedback),
+        },
     ]
     for attempt in (1, 2):
         result = await llm.chat(messages, role="planner")

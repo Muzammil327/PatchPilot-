@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     nebius_base_url: str = ""
     model_planner: str = ""
     model_worker: str = ""
+    model_reviewer: str = ""
 
     llm_timeout_seconds: float = 60.0
     llm_max_retries: int = Field(default=2, ge=0, le=5)
@@ -35,6 +36,11 @@ class Settings(BaseSettings):
     agent_tool_mode: Literal["auto", "native", "json"] = "auto"
     # Ask the planner model (MODEL_PLANNER) for a plan before the agent edits code.
     agent_planning: bool = True
+    # Self-repair: how many patch -> test attempts before a run is left unverified.
+    agent_max_attempts: int = Field(default=3, ge=1, le=10)
+    agent_max_review_rounds: int = Field(default=2, ge=1, le=5)
+    # Wall-clock budget for the whole run, including installs and every test run.
+    agent_run_timeout_seconds: float = Field(default=900.0, gt=0)
 
     # Sandbox: allow-listed commands run in throwaway Docker containers.
     sandbox_node_image: str = "node:22-slim"

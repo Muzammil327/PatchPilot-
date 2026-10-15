@@ -5,10 +5,25 @@ from functools import lru_cache
 from typing import Literal
 
 from app.agent.planner import AgentPlan
+from app.agent.verification import CriterionResult, ReviewResult, VerificationContract
 
-RunStatus = Literal["running", "succeeded", "no_changes", "failed"]
+RunStatus = Literal["running", "succeeded", "no_changes", "unverified", "failed"]
 EventType = Literal[
-    "started", "plan", "model_message", "tool_call", "tool_result", "finished", "failed"
+    "started",
+    "baseline",
+    "plan",
+    "attempt",
+    "model_message",
+    "tool_call",
+    "tool_result",
+    "tests_passed",
+    "tests_failed",
+    "contract",
+    "review",
+    "verification_failed",
+    "hypothesis_rejected",
+    "finished",
+    "failed",
 ]
 
 MAX_EVENT_DETAIL_CHARS = 2000
@@ -40,6 +55,15 @@ class RunEvent:
 
 
 @dataclass
+class Attempt:
+    n: int
+    hypothesis: str
+    diff: str
+    test_passed: bool
+    failure_summary: str | None
+
+
+@dataclass
 class Run:
     run_id: str
     repo_id: str
@@ -53,6 +77,11 @@ class Run:
     summary: str = ""
     error: str | None = None
     plan: AgentPlan | None = None
+    attempts: list[Attempt] = field(default_factory=list)
+    baseline_output: str | None = None
+    contract: VerificationContract | None = None
+    criterion_results: list[CriterionResult] = field(default_factory=list)
+    review: ReviewResult | None = None
 
     @property
     def is_active(self) -> bool:
@@ -83,6 +112,24 @@ class Run:
         self.error = error
         self.finished_at = now_iso()
         self.add_event("failed", error)
+
+    def record_attempt(
+        self,
+        n: int,
+        hypothesis: str,
+        diff: str,
+        test_passed: bool,
+        failure_summary: str | None = None,
+    ) -> Attempt:
+        attempt = Attempt(
+            n=n,
+            hypothesis=hypothesis,
+            diff=diff,
+            test_passed=test_passed,
+            failure_summary=failure_summary,
+        )
+        self.attempts.append(attempt)
+        return attempt
 
 
 class RunStore:

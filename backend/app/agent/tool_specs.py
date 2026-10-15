@@ -7,6 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.agent.errors import ToolError
 from app.agent.tools import WorkspaceTools
+from app.sandbox.commands import CommandName
+
+COMMAND_TOOL_NAME = "run_command"
+COMMAND_TOOL_DESCRIPTION = (
+    "Run one allow-listed command (install, test, lint, build) for this repository in a "
+    "sandbox and read its output. Run test after editing to confirm the fix."
+)
 
 
 class ToolArgs(BaseModel):
@@ -41,6 +48,10 @@ class ReplaceCodeArgs(ToolArgs):
 
 class NoArgs(ToolArgs):
     pass
+
+
+class RunCommandArgs(ToolArgs):
+    name: CommandName = Field(description="One of: install, test, lint, build.")
 
 
 @dataclass(frozen=True)
@@ -100,8 +111,8 @@ TOOL_SPECS: dict[str, ToolSpec] = {
 }
 
 
-def openai_tool_definitions() -> list[dict[str, Any]]:
-    return [
+def openai_tool_definitions(include_commands: bool = False) -> list[dict[str, Any]]:
+    definitions = [
         {
             "type": "function",
             "function": {
@@ -112,9 +123,21 @@ def openai_tool_definitions() -> list[dict[str, Any]]:
         }
         for spec in TOOL_SPECS.values()
     ]
+    if include_commands:
+        definitions.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": COMMAND_TOOL_NAME,
+                    "description": COMMAND_TOOL_DESCRIPTION,
+                    "parameters": RunCommandArgs.model_json_schema(),
+                },
+            }
+        )
+    return definitions
 
 
-def json_mode_tool_docs() -> str:
+def json_mode_tool_docs(include_commands: bool = False) -> str:
     """Tool reference for providers without native tool calling."""
     lines = []
     for spec in TOOL_SPECS.values():
@@ -123,6 +146,8 @@ def json_mode_tool_docs() -> str:
             f"{name}{'' if field.is_required() else '?'}" for name, field in fields.items()
         )
         lines.append(f"- {spec.name}({params}): {spec.description}")
+    if include_commands:
+        lines.append(f"- {COMMAND_TOOL_NAME}(name): {COMMAND_TOOL_DESCRIPTION}")
     return "\n".join(lines)
 
 

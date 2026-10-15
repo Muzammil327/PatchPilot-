@@ -18,6 +18,9 @@ from app.llm.client import LLMClient
 from app.main import app
 from app.repo.clone import GitHubRepoRef
 from app.repo.service import RepoService, get_repo_service
+from app.sandbox.commands import CommandName
+from app.sandbox.errors import CommandUnavailableError
+from app.sandbox.runner import CommandResult
 
 client = TestClient(app)
 
@@ -74,15 +77,83 @@ def text_reply(content: str) -> httpx.Response:
     )
 
 
+def command_result(name: str, *, passed: bool = True, output: str = "") -> CommandResult:
+    return CommandResult(
+        name=name,
+        command=name,
+        exit_code=0 if passed else 1,
+        output=output or ("ok" if passed else "1 failed"),
+        duration_ms=1,
+        timed_out=False,
+    )
+
+
+class FakeSandbox:
+    """A sandbox whose command results are scripted, so runs are deterministic and offline."""
+
+    def __init__(
+        self,
+        *results: CommandResult,
+        passed: bool = True,
+        unavailable: tuple[str, ...] = (),
+    ):
+        self.results = list(results)
+        self.passed = passed
+        self.unavailable = set(unavailable)
+        self.calls: list[str] = []
+
+    async def run(self, repos: RepoService, repo_id: str, name: CommandName) -> CommandResult:
+        self.calls.append(name)
+        if name in self.unavailable:
+            raise CommandUnavailableError(f'This repository has no "{name}" command.')
+        if self.results:
+            return self.results.pop(0)
+        return command_result(name, passed=self.passed)
+
+
 class ScriptedModel:
     """Plays back canned provider responses and records every request body."""
 
     def __init__(self, *replies: httpx.Response):
         self.replies = list(replies)
         self.requests: list[dict[str, Any]] = []
+        self.contract_requests: list[dict[str, Any]] = []
+        self.review_requests: list[dict[str, Any]] = []
+        self.review_replies: list[dict[str, Any]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(json.loads(request.content))
+        body = json.loads(request.content)
+        system = body["messages"][0]["content"]
+        if "Create a concise issue-specific success checklist" in system:
+            self.contract_requests.append(body)
+            return text_reply(
+                json.dumps(
+                    {
+                        "criteria": [
+                            {
+                                "id": "behavior",
+                                "description": "The issue behavior is fixed",
+                                "kind": "behavior",
+                                "required": True,
+                            }
+                        ]
+                    }
+                )
+            )
+        if "independent senior code reviewer" in system:
+            self.review_requests.append(body)
+            if self.review_replies:
+                return text_reply(json.dumps(self.review_replies.pop(0)))
+            return text_reply(
+                json.dumps(
+                    {"verdict": "approved", "summary": "Patch meets the checklist", "findings": []}
+                )
+            )
+        if "You summarize failing test output" in system:
+            return text_reply(
+                "The repository test failed; inspect the reported test and repair the cause."
+            )
+        self.requests.append(body)
         return self.replies.pop(0) if self.replies else text_reply("Done.")
 
 
@@ -112,15 +183,36 @@ def use_model(model: ScriptedModel | None, **overrides: Any) -> None:
     app.dependency_overrides[get_llm_client] = lambda: LLMClient(settings, transport=transport)
 
 
-def use_agent_settings(repo_service: RepoService, **overrides: Any) -> None:
+def use_agent_settings(
+    repo_service: RepoService, sandbox: FakeSandbox | None = None, **overrides: Any
+) -> FakeSandbox:
     # Planning is off unless a test asks for it, so scripted replies map to agent steps.
     settings = Settings(_env_file=None, **{"agent_planning": False, **overrides})
     store = app.dependency_overrides[get_run_store]()
-    app.dependency_overrides[get_run_service] = lambda: RunService(repo_service, store, settings)
+    fake = sandbox or FakeSandbox()
+    app.dependency_overrides[get_run_service] = lambda: RunService(
+        repo_service, store, settings, fake
+    )
+    return fake
 
 
-def start_run(repo_id: str, issue: str = "Total should count the items") -> dict[str, Any]:
-    created = client.post(f"/api/repos/{repo_id}/runs", json={"issue": issue})
+def start_run(
+    repo_id: str,
+    issue: str = "Total should count the items",
+    contract_edit: tuple[str, str] | None = None,
+) -> dict[str, Any]:
+    contract = client.post(f"/api/repos/{repo_id}/runs/contract", json={"issue": issue})
+    assert contract.status_code == 200, contract.text
+    contract_body = contract.json()
+    if contract_edit:
+        criterion = next(
+            item for item in contract_body["criteria"] if item["id"] == contract_edit[0]
+        )
+        criterion["description"] = contract_edit[1]
+    created = client.post(
+        f"/api/repos/{repo_id}/runs",
+        json={"issue": issue, "verificationContract": contract_body},
+    )
     assert created.status_code == 202, created.text
     # TestClient finishes background tasks before returning, so the run is complete here.
     run_id = created.json()["runId"]
@@ -141,18 +233,42 @@ def test_native_run_edits_code_and_returns_diff(repo_service: RepoService) -> No
     )
     use_model(model)
 
-    run = start_run(repo_id)
+    run = start_run(repo_id, contract_edit=("behavior", "The cart total reflects item count"))
 
-    assert run["status"] == "succeeded"
+    assert run["status"] == "succeeded", (
+        run["status"],
+        [
+            (r["model"], r["messages"][0]["content"][:80], r["messages"][1]["content"][:150])
+            for r in model.requests
+        ],
+    )
     assert run["summary"] == "Total now returns the number of items."
     assert "-  return 0" in run["diff"] and "+  return items.length" in run["diff"]
     assert run["steps"] == 3
+    assert run["review"]["verdict"] == "approved"
+    assert (
+        next(item for item in run["contract"]["criteria"] if item["id"] == "behavior")[
+            "description"
+        ]
+        == "The cart total reflects item count"
+    )
+    assert {item["status"] for item in run["criterionResults"]} == {"pass"}
+    assert model.review_requests[0]["messages"][0]["content"].startswith("You are an independent")
+    assert not any(
+        "root cause" in message.get("content", "").lower()
+        for message in model.review_requests[0]["messages"]
+    )
     assert [event["type"] for event in run["events"]] == [
         "started",
+        "contract",
+        "baseline",
+        "attempt",
         "tool_call",
         "tool_result",
         "tool_call",
         "tool_result",
+        "tests_passed",
+        "review",
         "finished",
     ]
     first = model.requests[0]
@@ -164,6 +280,55 @@ def test_native_run_edits_code_and_returns_diff(repo_service: RepoService) -> No
     assert user["content"].startswith("Issue:\nTotal should count the items")
     tool_message = model.requests[1]["messages"][-1]
     assert tool_message["role"] == "tool" and "1| export function total" in tool_message["content"]
+
+
+def test_reviewer_rejection_is_fed_into_a_repair_attempt(repo_service: RepoService) -> None:
+    repo_id = connect()
+    model = ScriptedModel(
+        tool_call_reply(
+            (
+                "replace_code",
+                {"path": "src/cart.ts", "old": "return 0", "new": "return items.length"},
+            )
+        ),
+        text_reply("Fixed the total."),
+        tool_call_reply(("read_file", {"path": "src/cart.ts"})),
+        tool_call_reply(
+            (
+                "replace_code",
+                {"path": "src/cart.ts", "old": "return 0", "new": "return items.length || 0"},
+            )
+        ),
+        text_reply("Confirmed the corrected behavior."),
+    )
+    model.review_replies = [
+        {
+            "verdict": "changes_requested",
+            "summary": "Check empty input",
+            "findings": [
+                {
+                    "category": "edge_case",
+                    "severity": "medium",
+                    "file": "src/cart.ts",
+                    "line": 2,
+                    "message": "Handle empty input explicitly.",
+                }
+            ],
+        },
+        {"verdict": "approved", "summary": "The revised patch is safe", "findings": []},
+    ]
+    use_model(model)
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "succeeded", run
+    assert len(model.review_requests) == 2
+    assert len(run["attempts"]) == 2
+    assert any(
+        "Handle empty input explicitly" in event["detail"]
+        for event in run["events"]
+        if event["type"] == "hypothesis_rejected"
+    )
 
 
 def test_tool_errors_go_back_to_the_model(repo_service: RepoService) -> None:
@@ -362,7 +527,13 @@ def test_planner_plan_reaches_the_agent_and_the_run(repo_service: RepoService) -
         "steps": ["Read src/cart.ts", "Return the item count from total()"],
         "testsToAdd": ["total([a, b]) returns 2"],
     }
-    assert [event["type"] for event in run["events"]][:2] == ["started", "plan"]
+    assert [event["type"] for event in run["events"]][:5] == [
+        "started",
+        "contract",
+        "baseline",
+        "attempt",
+        "plan",
+    ]
     planner_request, first_agent_request = model.requests[0], model.requests[1]
     assert planner_request["model"] == "planner-model" and "tools" not in planner_request
     assert "untrusted" in planner_request["messages"][0]["content"]
@@ -403,3 +574,128 @@ def test_planner_error_does_not_fail_the_run(repo_service: RepoService) -> None:
 
     assert run["status"] == "no_changes"
     assert any("continuing without a plan" in event["message"] for event in run["events"])
+
+
+FIX_CART = {
+    "path": "src/cart.ts",
+    "old": "return 0",
+    "new": "return items.length",
+}
+
+
+def test_run_self_repairs_after_a_failing_test(repo_service: RepoService) -> None:
+    repo_id = connect()
+    sandbox = FakeSandbox(
+        command_result("install"),
+        command_result("test"),  # baseline
+        command_result("test", passed=False, output="FAILED src/cart.test.ts::total"),
+        command_result("test"),  # attempt 2 passes
+    )
+    use_agent_settings(repo_service, sandbox=sandbox, agent_planning=True)
+    model = ScriptedModel(
+        text_reply("```json\n" + PLAN_JSON + "\n```"),
+        tool_call_reply(("replace_code", FIX_CART)),
+        text_reply("Counts items."),
+        text_reply("```json\n" + PLAN_JSON + "\n```"),
+        tool_call_reply(("replace_code", FIX_CART)),
+        text_reply("Counts items, for real."),
+    )
+    use_model(model)
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "succeeded", (
+        run["status"],
+        [
+            (r["model"], r["messages"][0]["content"][:80], r["messages"][1]["content"][:150])
+            for r in model.requests
+        ],
+    )
+    assert [attempt["testPassed"] for attempt in run["attempts"]] == [False, True]
+    assert any(event["type"] == "hypothesis_rejected" for event in run["events"])
+    assert sandbox.calls == ["install", "test", "test", "test"]
+    replan_context = model.requests[3]["messages"][1]["content"]
+    assert "do not repeat" in replan_context
+
+
+def test_run_gives_up_after_max_attempts(repo_service: RepoService) -> None:
+    repo_id = connect()
+    sandbox = FakeSandbox(
+        command_result("install"),
+        command_result("test", passed=False, output="FAILED baseline"),
+        command_result("test", passed=False, output="FAILED attempt 1"),
+        command_result("test", passed=False, output="FAILED attempt 2"),
+    )
+    use_agent_settings(repo_service, sandbox=sandbox, agent_max_attempts=2)
+    use_model(
+        ScriptedModel(
+            tool_call_reply(("replace_code", FIX_CART)),
+            text_reply("Attempt one."),
+            tool_call_reply(("replace_code", FIX_CART)),
+            text_reply("Attempt two."),
+        )
+    )
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "unverified", run
+    assert len(run["attempts"]) == 2
+    assert all(not attempt["testPassed"] for attempt in run["attempts"])
+    assert "repository test failed" in run["error"].lower()
+
+
+def test_run_without_a_test_command_is_unverified(repo_service: RepoService) -> None:
+    repo_id = connect()
+    sandbox = FakeSandbox(unavailable=("test",))
+    use_agent_settings(repo_service, sandbox=sandbox)
+    use_model(
+        ScriptedModel(
+            tool_call_reply(("replace_code", FIX_CART)),
+            text_reply("Changed it."),
+        )
+    )
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "unverified"
+    assert run["diff"]
+    assert run["error"] == "The fix could not be verified: no test command ran in the sandbox."
+    assert all("baseline" != event["type"] for event in run["events"])
+
+
+def test_agent_can_run_a_command_with_the_tool(repo_service: RepoService) -> None:
+    repo_id = connect()
+    sandbox = FakeSandbox()
+    use_agent_settings(repo_service, sandbox=sandbox)
+    model = ScriptedModel(
+        tool_call_reply(("run_command", {"name": "test"})),
+        tool_call_reply(("replace_code", FIX_CART)),
+        text_reply("Fixed."),
+    )
+    use_model(model)
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "succeeded"
+    tool_names = {tool["function"]["name"] for tool in model.requests[0]["tools"]}
+    assert "run_command" in tool_names
+    tool_message = model.requests[1]["messages"][-1]
+    assert tool_message["role"] == "tool" and "run_command(test)" in tool_message["content"]
+
+
+def test_run_command_rejects_a_command_outside_the_allow_list(
+    repo_service: RepoService,
+) -> None:
+    repo_id = connect()
+    use_agent_settings(repo_service, sandbox=FakeSandbox())
+    model = ScriptedModel(
+        tool_call_reply(("run_command", {"name": "rm -rf /"})),
+        text_reply("Nothing to change."),
+    )
+    use_model(model)
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "no_changes"
+    tool_message = model.requests[1]["messages"][-1]
+    assert "Invalid arguments for run_command" in tool_message["content"]
