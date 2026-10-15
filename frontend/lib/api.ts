@@ -108,14 +108,22 @@ export interface AskResponse {
   files: RankedFile[];
 }
 
-export type RunStatus = "running" | "succeeded" | "no_changes" | "failed";
+export type RunStatus = "running" | "succeeded" | "no_changes" | "unverified" | "failed";
 
 export type RunEventType =
   | "started"
+  | "baseline"
   | "plan"
+  | "attempt"
   | "model_message"
   | "tool_call"
   | "tool_result"
+  | "tests_passed"
+  | "tests_failed"
+  | "contract"
+  | "review"
+  | "verification_failed"
+  | "hypothesis_rejected"
   | "finished"
   | "failed";
 
@@ -146,8 +154,19 @@ export interface AgentRun {
   diff: string;
   error: string | null;
   plan: AgentPlan | null;
+  contract: VerificationContract | null;
+  criterionResults: CriterionResult[];
+  review: ReviewerResult | null;
+  attempts: AgentAttempt[];
   events: RunEvent[];
 }
+
+export interface VerificationCriterion { id: string; description: string; kind: string; required: boolean }
+export interface VerificationContract { criteria: VerificationCriterion[] }
+export interface CriterionResult { criterionId: string; status: "pass" | "fail" | "blocked"; evidence: string }
+export interface ReviewerFinding { category: string; severity: "low" | "medium" | "high" | "critical"; file: string | null; line: number | null; message: string }
+export interface ReviewerResult { verdict: "approved" | "changes_requested"; findings: ReviewerFinding[]; summary: string }
+export interface AgentAttempt { n: number; hypothesis: string; diff: string; testPassed: boolean; failureSummary: string | null }
 
 export class ApiError extends Error {
   constructor(
@@ -281,9 +300,18 @@ export function askRepo(
 export function startRun(
   repoId: string,
   issue: string,
+  verificationContract?: VerificationContract,
   signal?: AbortSignal,
 ): Promise<{ runId: string; status: RunStatus }> {
-  return postJson(repoPath(repoId, "/runs"), { issue }, signal);
+  return postJson(repoPath(repoId, "/runs"), { issue, verificationContract }, signal);
+}
+
+export function createVerificationContract(
+  repoId: string,
+  issue: string,
+  signal?: AbortSignal,
+): Promise<VerificationContract> {
+  return postJson(repoPath(repoId, "/runs/contract"), { issue }, signal);
 }
 
 export function fetchRun(repoId: string, runId: string, signal?: AbortSignal): Promise<AgentRun> {

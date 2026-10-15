@@ -26,6 +26,7 @@ type RunViewState =
 const STATUS_LABEL: Record<RunStatus, string> = {
   running: "Running",
   succeeded: "Succeeded",
+  unverified: "Needs review",
   no_changes: "No changes",
   failed: "Failed",
 };
@@ -33,11 +34,20 @@ const STATUS_LABEL: Record<RunStatus, string> = {
 const STATUS_CLASS: Record<RunStatus, string> = {
   running: "border-border bg-surface text-foreground motion-safe:animate-pulse",
   succeeded: "border-accent bg-accent text-accent-foreground",
+  unverified: "border-danger bg-danger-surface text-danger",
   no_changes: "border-border bg-surface text-muted",
   failed: "border-danger bg-danger-surface text-danger",
 };
 
 const EVENT_ICON: Record<RunEvent["type"], string> = {
+  baseline: "◉",
+  attempt: "↻",
+  tests_passed: "✓",
+  tests_failed: "×",
+  contract: "☑",
+  review: "◉",
+  verification_failed: "×",
+  hypothesis_rejected: "↻",
   started: "▶",
   plan: "🧭",
   model_message: "💬",
@@ -149,6 +159,25 @@ function RunBody({
 
           {run.plan && <PlanCard plan={run.plan} onSelectFile={onSelectFile} />}
 
+          {run.contract && <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+            <h3 className="text-sm font-medium">Success checklist</h3>
+            <ul className="flex flex-col gap-2">{run.contract.criteria.map((criterion) => {
+              const result = run.criterionResults.find((item) => item.criterionId === criterion.id);
+              const state = result?.status ?? (run.status === "running" ? "pending" : "blocked");
+              return <li key={criterion.id} className="text-sm">
+                <span className={`mr-2 font-semibold ${state === "pass" ? "text-accent" : state === "fail" || state === "blocked" ? "text-danger" : "text-muted"}`}>{state === "pass" ? "✓" : state === "fail" ? "×" : state === "blocked" ? "!" : "○"}</span>
+                {criterion.description}
+                {result && <details className="ml-6 mt-1 text-xs text-muted"><summary className="cursor-pointer">Evidence: {result.status}</summary><pre className="mt-1 whitespace-pre-wrap">{result.evidence}</pre></details>}
+              </li>;
+            })}</ul>
+          </section>}
+
+          {run.review && <section className={`flex flex-col gap-2 rounded-lg border p-4 ${run.review.verdict === "approved" ? "border-accent bg-surface" : "border-danger bg-danger-surface"}`}>
+            <h3 className="text-sm font-medium">Independent reviewer: {run.review.verdict === "approved" ? "Approved" : "Changes requested"}</h3>
+            {run.review.summary && <p className="text-sm">{run.review.summary}</p>}
+            {run.review.findings.map((finding, index) => <p key={`${finding.category}-${index}`} className="text-sm">{finding.severity}: {finding.message}{finding.file ? ` (${finding.file}${finding.line ? `:${finding.line}` : ""})` : ""}</p>)}
+          </section>}
+
           <section className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">Timeline</h3>
             <ol className="flex flex-col gap-1">
@@ -173,7 +202,7 @@ function RunBody({
             </section>
           )}
 
-          {run.status === "succeeded" && (
+          {(run.status === "succeeded" || run.status === "unverified") && run.diff && (
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-medium">Changes</h3>
               <DiffView diff={run.diff} onSelectFile={onSelectFile} />
