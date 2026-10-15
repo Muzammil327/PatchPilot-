@@ -25,7 +25,7 @@ Reviewer: Approved
 | Repository scan, repo map, relevant-file retrieval | 2 | Planned |
 | Autonomous plan → edit → diff agent loop | 3 | Planned |
 | Sandbox execution with self-repair | 4 | Planned |
-| Verification contract + reviewer agent | 5 | Planned |
+| Verification contract + reviewer agent | 5 | In progress |
 | Dashboard, diff view, pull request creation | 6 | Planned |
 
 Full roadmap: [`phases.md`](phases.md) · Architecture: [`docs/architecture.md`](docs/architecture.md)
@@ -99,6 +99,8 @@ App: <http://localhost:3000>
 | `NEBIUS_BASE_URL` | Yes | Token Factory OpenAI-compatible base URL |
 | `MODEL_PLANNER` | Yes | Nemotron model for planning and review |
 | `MODEL_WORKER` | Yes | Nemotron model for simpler tasks |
+| `MODEL_REVIEWER` | No | Optional separate model for independent patch review; defaults to `MODEL_PLANNER` |
+| `AGENT_MAX_REVIEW_ROUNDS` | No | Maximum verification/reviewer repair rounds (default `2`) |
 | `LLM_TIMEOUT_SECONDS` | No | Request timeout (default `60`) |
 | `LLM_MAX_RETRIES` | No | Retries for 429/5xx (default `2`) |
 | `FRONTEND_ORIGIN` | No | Allowed CORS origin (default `http://localhost:3000`) |
