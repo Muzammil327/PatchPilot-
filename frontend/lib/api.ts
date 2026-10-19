@@ -1,9 +1,10 @@
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
+// Inlined by Next.js at build time: set it before building (Vercel: Project → Settings →
+// Environment Variables, then redeploy). No fallback, so a missing value fails loudly
+// instead of silently calling the visitor's own localhost.
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").trim().replace(/\/$/, "");
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(
-  /\/$/,
-  "",
-);
+const MISSING_API_URL_MESSAGE =
+  "The backend URL is not configured. Set NEXT_PUBLIC_API_BASE_URL and rebuild the frontend.";
 
 export interface PromptResponse {
   output: string;
@@ -234,6 +235,7 @@ function postJson<TResponse>(
 }
 
 async function requestJson<TResponse>(path: string, init: RequestInit): Promise<TResponse> {
+  if (!API_BASE_URL) throw new ApiError(MISSING_API_URL_MESSAGE, 0);
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, init);
