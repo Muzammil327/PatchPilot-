@@ -38,3 +38,18 @@ def test_parse_github_url_accepts_public_repo_urls(url: str, full_name: str) -> 
 def test_parse_github_url_rejects_everything_else(url: str) -> None:
     with pytest.raises(InvalidRepoUrlError):
         parse_github_url(url)
+
+
+def test_clone_reports_missing_git(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from app.repo.clone import clone_repository
+    from app.repo.errors import GitUnavailableError
+
+    def no_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(subprocess, "run", no_git)
+
+    with pytest.raises(GitUnavailableError):
+        clone_repository(parse_github_url("https://github.com/acme/shop"), tmp_path / "x", 5)

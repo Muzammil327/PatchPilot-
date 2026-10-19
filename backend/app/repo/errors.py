@@ -25,5 +25,9 @@ class CloneFailedError(RepoError):
     public_message = "Cloning the repository failed"
 
 
+class GitUnavailableError(RepoError):
+    public_message = "The server cannot clone repositories because git is not installed"
+
+
 class RepoNotFoundError(RepoError):
     public_message = "Repository not found"

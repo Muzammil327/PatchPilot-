@@ -7,6 +7,7 @@ from pathlib import Path
 from app.repo.errors import (
     CloneFailedError,
     CloneTimeoutError,
+    GitUnavailableError,
     InvalidRepoUrlError,
     RepoUnavailableError,
 )
@@ -66,6 +67,9 @@ def clone_repository(ref: GitHubRepoRef, destination: Path, timeout_seconds: flo
         )
     except subprocess.TimeoutExpired as exc:
         raise CloneTimeoutError(f"Clone of {ref.full_name} timed out") from exc
+    except FileNotFoundError as exc:
+        # Minimal deploy images (e.g. Railway's Python image) ship without git.
+        raise GitUnavailableError("git executable not found") from exc
 
     if result.returncode != 0:
         stderr = result.stderr.lower()

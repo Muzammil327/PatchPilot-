@@ -11,6 +11,7 @@ from app.repo.ask import SYSTEM_PROMPT
 from app.repo.errors import (
     CloneFailedError,
     CloneTimeoutError,
+    GitUnavailableError,
     InvalidRepoUrlError,
     RepoError,
     RepoNotFoundError,
@@ -35,6 +36,7 @@ STATUS_BY_ERROR: dict[type[RepoError], int] = {
     RepoTooLargeError: status.HTTP_413_CONTENT_TOO_LARGE,
     CloneTimeoutError: status.HTTP_504_GATEWAY_TIMEOUT,
     CloneFailedError: status.HTTP_502_BAD_GATEWAY,
+    GitUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
     RepoNotFoundError: status.HTTP_404_NOT_FOUND,
 }
 

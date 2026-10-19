@@ -267,3 +267,19 @@ def test_ask_unknown_repo_returns_404(tmp_path: Path) -> None:
     response = client.post("/api/repos/missing/ask", json={"question": "anything"})
 
     assert response.status_code == 404
+
+
+def test_connect_reports_missing_git_as_503(tmp_path: Path) -> None:
+    from app.repo.errors import GitUnavailableError
+
+    def no_git(ref: GitHubRepoRef, destination: Path, timeout_seconds: float) -> None:
+        raise GitUnavailableError("git executable not found")
+
+    use_service(tmp_path, no_git)
+
+    response = client.post("/api/repos", json={"url": REPO_URL})
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "The server cannot clone repositories because git is not installed"
+    }
