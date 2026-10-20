@@ -19,7 +19,7 @@ from app.main import app
 from app.repo.clone import GitHubRepoRef
 from app.repo.service import RepoService, get_repo_service
 from app.sandbox.commands import CommandName
-from app.sandbox.errors import CommandUnavailableError
+from app.sandbox.errors import CommandUnavailableError, SandboxUnavailableError
 from app.sandbox.runner import CommandResult
 
 client = TestClient(app)
@@ -96,14 +96,18 @@ class FakeSandbox:
         *results: CommandResult,
         passed: bool = True,
         unavailable: tuple[str, ...] = (),
+        is_down: bool = False,
     ):
         self.results = list(results)
+        self.is_down = is_down
         self.passed = passed
         self.unavailable = set(unavailable)
         self.calls: list[str] = []
 
     async def run(self, repos: RepoService, repo_id: str, name: CommandName) -> CommandResult:
         self.calls.append(name)
+        if self.is_down:
+            raise SandboxUnavailableError("docker executable not found")
         if name in self.unavailable:
             raise CommandUnavailableError(f'This repository has no "{name}" command.')
         if self.results:
@@ -681,6 +685,26 @@ def test_agent_can_run_a_command_with_the_tool(repo_service: RepoService) -> Non
     assert "run_command" in tool_names
     tool_message = model.requests[1]["messages"][-1]
     assert tool_message["role"] == "tool" and "run_command(test)" in tool_message["content"]
+
+
+def test_run_without_docker_is_unverified_not_crashed(repo_service: RepoService) -> None:
+    repo_id = connect()
+    use_agent_settings(repo_service, sandbox=FakeSandbox(is_down=True))
+    model = ScriptedModel(
+        tool_call_reply(("run_command", {"name": "test"})),
+        tool_call_reply(("replace_code", FIX_CART)),
+        text_reply("Fixed without running tests."),
+    )
+    use_model(model)
+
+    run = start_run(repo_id)
+
+    assert run["status"] == "unverified", run
+    assert run["diff"]
+    assert run["error"] == "The fix could not be verified: no test command ran in the sandbox."
+    tool_message = model.requests[1]["messages"][-1]
+    assert tool_message["role"] == "tool"
+    assert "The sandbox is not available" in tool_message["content"]
 
 
 def test_run_command_rejects_a_command_outside_the_allow_list(

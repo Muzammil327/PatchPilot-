@@ -26,6 +26,7 @@ from app.llm.client import (
     ModelRole,
     ToolCall,
 )
+from app.sandbox.errors import SandboxError, SandboxUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +258,15 @@ class AgentRunner:
                 for error in exc.errors()
             )
             raise ToolError(f"Invalid arguments for {COMMAND_TOOL_NAME}: {problems}") from exc
-        result = await self.commands.run(args.name)
+        try:
+            result = await self.commands.run(args.name)
+        except SandboxUnavailableError as exc:
+            # e.g. a host without Docker: tell the model so it finishes instead of retrying.
+            raise ToolError(
+                f"{exc.public_message} Commands cannot run here; finish without them."
+            ) from exc
+        except SandboxError as exc:
+            raise ToolError(exc.public_message) from exc
         return format_result(result)
 
     def guard_repeats(self, name: str, raw_arguments: str | dict[str, Any], output: str) -> None:
