@@ -1,4 +1,4 @@
-# PatchPilot
+# PatchPilot 
 
 An autonomous coding agent for the **Coding & Agentic Engineering Track**, powered by
 **NVIDIA Nemotron** models served through **Nebius Token Factory**.
