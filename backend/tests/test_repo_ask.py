@@ -6,6 +6,7 @@ from app.repo.ask import (
     MAX_CONTEXT_FILES,
     build_ask_prompt,
     build_excerpt,
+    parse_ask_answer,
 )
 from app.repo.search import RankedFile
 
@@ -68,3 +69,34 @@ def test_prompt_without_matches(tmp_path: Path) -> None:
 
     assert "No repository files matched" in ask.prompt
     assert ask.files == []
+
+
+def test_confirmed_bug_verdict_is_split_from_the_answer() -> None:
+    output = (
+        "- total adds price + qty in lib/cart.ts line 24.\n"
+        "VERDICT: BUG_CONFIRMED | total() in lib/cart.ts adds price and qty instead of "
+        "multiplying them\n"
+    )
+
+    parsed = parse_ask_answer(output)
+
+    assert parsed.answer == "- total adds price + qty in lib/cart.ts line 24."
+    assert parsed.is_issue_confirmed is True
+    assert parsed.issue_summary == (
+        "total() in lib/cart.ts adds price and qty instead of multiplying them"
+    )
+
+
+def test_no_bug_verdict_is_not_confirmed() -> None:
+    parsed = parse_ask_answer("Auth lives in src/auth.ts.\nverdict: no_bug")
+
+    assert parsed.answer == "Auth lives in src/auth.ts."
+    assert parsed.is_issue_confirmed is False
+    assert parsed.issue_summary is None
+
+
+def test_missing_verdict_is_not_confirmed() -> None:
+    parsed = parse_ask_answer("\nShop lives in src/index.ts.\n")
+
+    assert parsed.answer == "Shop lives in src/index.ts."
+    assert parsed.is_issue_confirmed is False

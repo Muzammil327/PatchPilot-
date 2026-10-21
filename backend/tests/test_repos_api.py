@@ -239,6 +239,8 @@ def test_ask_sends_ranked_files_as_untrusted_context(tmp_path: Path) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["answer"] == "Shop lives in src/index.ts."
+    assert body["isIssueConfirmed"] is False
+    assert body["issueSummary"] is None
     assert body["model"] == "worker-model"
     assert [f["path"] for f in body["files"]] == ["src/index.ts"]
     system, user = sent["messages"]
@@ -248,6 +250,28 @@ def test_ask_sends_ranked_files_as_untrusted_context(tmp_path: Path) -> None:
     assert '<file path="src/index.ts">' in user["content"]
     assert "3| class Shop { open() {} }" in user["content"]
     assert sent["model"] == "worker-model"
+
+
+def test_ask_reports_a_confirmed_bug(tmp_path: Path) -> None:
+    repo_id = connect(tmp_path)
+    content = (
+        "main() never opens the shop.\n"
+        "VERDICT: BUG_CONFIRMED | main() in src/index.ts never opens the shop"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"model": "worker-model", "choices": [{"message": {"content": content}}]}
+        )
+
+    use_llm(handler)
+
+    response = client.post(f"/api/repos/{repo_id}/ask", json={"question": "Shop never opens"})
+
+    body = response.json()
+    assert body["answer"] == "main() never opens the shop."
+    assert body["isIssueConfirmed"] is True
+    assert body["issueSummary"] == "main() in src/index.ts never opens the shop"
 
 
 def test_ask_reports_unconfigured_provider(tmp_path: Path) -> None:

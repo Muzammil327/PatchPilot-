@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +10,12 @@ MIN_USEFUL_BLOCK_CHARS = 400  # below this, a truncated file adds noise rather t
 MATCH_RADIUS_LINES = 8
 HEAD_LINES = 40
 GAP_MARKER = "…"
+MAX_ISSUE_SUMMARY_CHARS = 300
+# The model ends every answer with this line; it is parsed off before the answer is shown.
+VERDICT_PATTERN = re.compile(
+    r"^\s*VERDICT:\s*(?P<verdict>BUG_CONFIRMED|NO_BUG)\s*(?:\|\s*(?P<summary>.*?))?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 SYSTEM_PROMPT = (
     "You are PatchPilot, an assistant that answers questions about a code repository.\n"
@@ -20,7 +27,13 @@ SYSTEM_PROMPT = (
     "say so plainly instead of guessing.\n"
     # The UI shows answers as plain text, so Markdown tables and HTML render as clutter.
     "Write plain text only: short paragraphs or simple lines starting with '- '. "
-    "No Markdown tables, no **bold** or headings, no HTML tags."
+    "No Markdown tables, no **bold** or headings, no HTML tags.\n"
+    "After the answer, end with exactly one final line:\n"
+    "VERDICT: BUG_CONFIRMED | <one sentence stating the bug, its file and the wrong behavior>\n"
+    "when the excerpts show concrete code that behaves wrongly for what the user describes, "
+    "or\n"
+    "VERDICT: NO_BUG\n"
+    "when they do not (a general question, correct code, or not enough evidence)."
 )
 
 
@@ -28,6 +41,29 @@ SYSTEM_PROMPT = (
 class AskPrompt:
     prompt: str
     files: list[RankedFile]  # the files actually included in the prompt
+
+
+@dataclass(frozen=True)
+class AskAnswer:
+    answer: str
+    is_issue_confirmed: bool
+    issue_summary: str | None
+
+
+def parse_ask_answer(output: str) -> AskAnswer:
+    """Split the model's verdict line off the answer. No verdict means no confirmed bug."""
+    matches = list(VERDICT_PATTERN.finditer(output))
+    if not matches:
+        return AskAnswer(answer=output.strip(), is_issue_confirmed=False, issue_summary=None)
+    verdict = matches[-1]
+    answer = VERDICT_PATTERN.sub("", output).strip()
+    summary = (verdict["summary"] or "").strip()[:MAX_ISSUE_SUMMARY_CHARS] or None
+    is_confirmed = verdict["verdict"].upper() == "BUG_CONFIRMED"
+    return AskAnswer(
+        answer=answer,
+        is_issue_confirmed=is_confirmed,
+        issue_summary=summary if is_confirmed else None,
+    )
 
 
 def build_ask_prompt(workspace: Path, ranked: list[RankedFile], question: str) -> AskPrompt:

@@ -173,6 +173,9 @@ function ConnectedWorkspace({
   const [view, setView] = useState<DetailView>({ kind: "overview" });
   const [bottomTab, setBottomTab] = useState<BottomTab>("ask");
   const [latestRunId, setLatestRunId] = useState<string | null>(null);
+  // Bugs go through Ask first; Fix opens once Ask confirms one (or the user chooses "Fix anyway").
+  const [fixHandoff, setFixHandoff] = useState<{ issue: string; key: number } | null>(null);
+  const isFixUnlocked = fixHandoff !== null || latestRunId !== null;
   const selectedPath = view.kind === "file" ? view.path : null;
   const handleRepoMissing = useCallback(() => onRepoMissing(repo.url), [onRepoMissing, repo.url]);
   const isMapRepoMissing = mapState.status === "error" && mapState.isRepoMissing;
@@ -187,6 +190,11 @@ function ConnectedWorkspace({
 
   function selectFile(path: string) {
     setView({ kind: "file", path });
+  }
+
+  function handleFixIssue(issue: string) {
+    setFixHandoff({ issue, key: Date.now() });
+    setBottomTab("fix");
   }
 
   function showRun(runId: string) {
@@ -239,23 +247,35 @@ function ConnectedWorkspace({
           )}
         </section>
         <section aria-label="Ask or fix" className="flex flex-col gap-3 border-t border-border p-4 sm:p-6">
-          <div role="tablist" aria-label="Assistant mode" className="flex gap-1">
-            {BOTTOM_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                id={`tab-${tab.id}`}
-                type="button"
-                role="tab"
-                aria-selected={bottomTab === tab.id}
-                aria-controls={`panel-${tab.id}`}
-                onClick={() => setBottomTab(tab.id)}
-                className={`rounded-md px-3 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent ${
-                  bottomTab === tab.id ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <div role="tablist" aria-label="Assistant mode" className="flex gap-1">
+              {BOTTOM_TABS.map((tab) => {
+                const isLocked = tab.id === "fix" && !isFixUnlocked;
+                return (
+                  <button
+                    key={tab.id}
+                    id={`tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={bottomTab === tab.id}
+                    aria-controls={`panel-${tab.id}`}
+                    aria-describedby={isLocked ? "fix-locked-hint" : undefined}
+                    disabled={isLocked}
+                    onClick={() => setBottomTab(tab.id)}
+                    className={`rounded-md px-3 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${
+                      bottomTab === tab.id ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            {!isFixUnlocked && (
+              <span id="fix-locked-hint" className="text-xs text-muted">
+                Ask about the bug first. Fix opens once it is confirmed.
+              </span>
+            )}
           </div>
           {/* Both panels stay mounted so an answer or a draft survives switching tabs. */}
           <div id="panel-ask" role="tabpanel" aria-labelledby="tab-ask" hidden={bottomTab !== "ask"}>
@@ -263,10 +283,14 @@ function ConnectedWorkspace({
               repoId={repo.repoId}
               onSelectFile={selectFile}
               onRepoMissing={handleRepoMissing}
+              onFixIssue={handleFixIssue}
             />
           </div>
           <div id="panel-fix" role="tabpanel" aria-labelledby="tab-fix" hidden={bottomTab !== "fix"}>
             <RunIssueForm
+              // A new handoff remounts the form, replacing any draft with the confirmed issue.
+              key={fixHandoff?.key ?? "manual"}
+              initialIssue={fixHandoff?.issue}
               repoId={repo.repoId}
               onRunStarted={showRun}
               onRepoMissing={handleRepoMissing}

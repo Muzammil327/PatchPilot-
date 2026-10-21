@@ -5,20 +5,30 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ApiError, askRepo, isRepoMissingError, type AskResponse } from "@/lib/api";
 
 const MAX_QUESTION_LENGTH = 1000;
+// Matches the backend's issue limit for runs.
+const MAX_ISSUE_LENGTH = 4000;
+
+/** The Fix issue text: the confirmed bug first, then the evidence Ask found. */
+function buildIssue(question: string, result: AskResponse): string {
+  const heading = result.issueSummary ?? question;
+  return `${heading}\n\nFindings from Ask:\n${result.answer}`.slice(0, MAX_ISSUE_LENGTH);
+}
 
 type AskState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "success"; result: AskResponse };
+  | { status: "success"; question: string; result: AskResponse };
 
 interface RepoAskProps {
   repoId: string;
   onSelectFile: (path: string) => void;
   onRepoMissing: () => void;
+  /** Hands an issue over to the Fix tab. */
+  onFixIssue: (issue: string) => void;
 }
 
-export function RepoAsk({ repoId, onSelectFile, onRepoMissing }: RepoAskProps) {
+export function RepoAsk({ repoId, onSelectFile, onRepoMissing, onFixIssue }: RepoAskProps) {
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<AskState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
@@ -38,8 +48,10 @@ export function RepoAsk({ repoId, onSelectFile, onRepoMissing }: RepoAskProps) {
     setState({ status: "loading" });
 
     try {
-      const result = await askRepo(repoId, question.trim(), controller.signal);
-      setState({ status: "success", result });
+      const asked = question.trim();
+      const result = await askRepo(repoId, asked, controller.signal);
+      setState({ status: "success", question: asked, result });
+      if (result.isIssueConfirmed) onFixIssue(buildIssue(asked, result));
     } catch (error) {
       if (controller.signal.aborted) return;
       if (isRepoMissingError(error)) {
@@ -64,7 +76,7 @@ export function RepoAsk({ repoId, onSelectFile, onRepoMissing }: RepoAskProps) {
           maxLength={MAX_QUESTION_LENGTH}
           onChange={(event) => setQuestion(event.target.value)}
           rows={2}
-          placeholder="e.g. Which files are related to authentication?"
+          placeholder="e.g. The cart total is wrong when an item has quantity 2"
           className="w-full resize-y rounded-lg border border-border bg-surface p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
         />
         <div className="flex items-center gap-3">
@@ -82,7 +94,11 @@ export function RepoAsk({ repoId, onSelectFile, onRepoMissing }: RepoAskProps) {
       </form>
 
       <section aria-live="polite" aria-busy={isLoading}>
-        <AskResult state={state} onSelectFile={onSelectFile} />
+        <AskResult
+          state={state}
+          onSelectFile={onSelectFile}
+          onFixAnyway={(asked, result) => onFixIssue(buildIssue(asked, result))}
+        />
       </section>
     </div>
   );
@@ -91,15 +107,18 @@ export function RepoAsk({ repoId, onSelectFile, onRepoMissing }: RepoAskProps) {
 function AskResult({
   state,
   onSelectFile,
+  onFixAnyway,
 }: {
   state: AskState;
   onSelectFile: (path: string) => void;
+  onFixAnyway: (question: string, result: AskResponse) => void;
 }) {
   switch (state.status) {
     case "idle":
       return (
         <p className="text-sm text-muted">
-          Answers use only the most relevant files from this repo.
+          Describe a bug here first. When the answer confirms it, PatchPilot moves to Fix an
+          issue and prepares a success checklist.
         </p>
       );
     case "loading":
@@ -144,6 +163,22 @@ function AskResult({
               · {result.model} · {result.latencyMs} ms
             </span>
           </div>
+          {result.isIssueConfirmed ? (
+            <p className="text-sm text-accent">
+              Bug confirmed. Moved to Fix an issue to prepare the fix.
+            </p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-muted">No bug confirmed in the code that was checked.</span>
+              <button
+                type="button"
+                onClick={() => onFixAnyway(state.question, result)}
+                className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                Fix anyway
+              </button>
+            </div>
+          )}
         </div>
       );
     }

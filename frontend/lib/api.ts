@@ -113,6 +113,9 @@ export interface AskResponse {
   model: string;
   latencyMs: number;
   files: RankedFile[];
+  /** The model judged that the code shows the bug the user described. */
+  isIssueConfirmed: boolean;
+  issueSummary: string | null;
 }
 
 export type RunStatus = "running" | "succeeded" | "no_changes" | "unverified" | "failed";

@@ -12,15 +12,41 @@ interface RunIssueFormProps {
   repoId: string;
   onRunStarted: (runId: string) => void;
   onRepoMissing: () => void;
+  /** An issue handed over from Ask: filled in, and its checklist is created right away. */
+  initialIssue?: string;
 }
 
-export function RunIssueForm({ repoId, onRunStarted, onRepoMissing }: RunIssueFormProps) {
-  const [issue, setIssue] = useState("");
-  const [state, setState] = useState<FormState>({ status: "idle" });
+export function RunIssueForm({ repoId, onRunStarted, onRepoMissing, initialIssue = "" }: RunIssueFormProps) {
+  const [issue, setIssue] = useState(initialIssue);
+  const [state, setState] = useState<FormState>(
+    initialIssue ? { status: "generating" } : { status: "idle" },
+  );
   const [criteria, setCriteria] = useState<VerificationCriterion[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (!initialIssue) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    createVerificationContract(repoId, initialIssue.trim(), controller.signal)
+      .then((contract) => {
+        setCriteria(contract.criteria);
+        setState({ status: "review" });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (isRepoMissingError(error)) {
+          onRepoMissing();
+          return;
+        }
+        const message =
+          error instanceof ApiError ? error.message : "Could not create the checklist. Please try again.";
+        setState({ status: "error", message });
+      });
+    return () => controller.abort();
+  }, [repoId, initialIssue, onRepoMissing]);
 
   const isBusy = state.status === "starting" || state.status === "generating";
   const isEmpty = issue.trim().length === 0;

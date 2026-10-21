@@ -7,7 +7,7 @@ from pydantic.alias_generators import to_camel
 
 from app.api.llm import get_llm_client, to_llm_http_error
 from app.llm.client import LLMClient, LLMError
-from app.repo.ask import SYSTEM_PROMPT
+from app.repo.ask import SYSTEM_PROMPT, parse_ask_answer
 from app.repo.errors import (
     CloneFailedError,
     CloneTimeoutError,
@@ -152,6 +152,9 @@ class AskResponse(CamelModel):
     model: str
     latency_ms: int
     files: list[RankedFileResponse]
+    # The model judged that the code shows the bug the user described.
+    is_issue_confirmed: bool
+    issue_summary: str | None
 
 
 def to_ranked_responses(files: list[RankedFile]) -> list[RankedFileResponse]:
@@ -299,11 +302,14 @@ async def ask_repo(
         completion = await llm.complete(ask_prompt.prompt, role="worker", system=SYSTEM_PROMPT)
     except LLMError as exc:
         raise to_llm_http_error(exc) from exc
+    parsed = parse_ask_answer(completion.output)
     return AskResponse(
-        answer=completion.output.strip(),
+        answer=parsed.answer,
         model=completion.model,
         latency_ms=completion.latency_ms,
         files=to_ranked_responses(ask_prompt.files),
+        is_issue_confirmed=parsed.is_issue_confirmed,
+        issue_summary=parsed.issue_summary,
     )
 
 
