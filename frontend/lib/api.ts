@@ -164,6 +164,7 @@ export interface AgentRun {
   contract: VerificationContract | null;
   criterionResults: CriterionResult[];
   review: ReviewerResult | null;
+  pullRequestUrl: string | null;
   attempts: AgentAttempt[];
   events: RunEvent[];
 }
@@ -352,6 +353,20 @@ export function fetchRun(repoId: string, runId: string, signal?: AbortSignal): P
   return requestJson<AgentRun>(repoPath(repoId, `/runs/${encodeURIComponent(runId)}`), {
     signal,
   });
+}
+
+/** Opens (or returns the already opened) GitHub pull request for a finished run. */
+export async function createPullRequest(
+  repoId: string,
+  runId: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const body = await postJson<{ url: string }>(
+    repoPath(repoId, `/runs/${encodeURIComponent(runId)}/pull-request`),
+    {},
+    signal,
+  );
+  return body.url;
 }
 
 export function fetchRepoMap(repoId: string, signal?: AbortSignal): Promise<RepoMap> {

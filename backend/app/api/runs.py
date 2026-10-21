@@ -14,10 +14,20 @@ from app.agent.runs import (
 )
 from app.agent.service import RunService
 from app.agent.verification import VerificationContract, create_contract, ensure_core_criteria
+from app.api.auth import require_session
 from app.api.llm import get_llm_client
 from app.api.repos import CamelModel, require_text, to_http_error
+from app.auth.sessions import Session
 from app.config import get_settings
 from app.llm.client import LLMClient
+from app.pr.errors import (
+    ForkNotReadyError,
+    GitHubAuthError,
+    NothingToPublishError,
+    PullRequestError,
+    PullRequestInProgressError,
+)
+from app.pr.service import PullRequestService, get_pull_request_service
 from app.repo.errors import RepoError
 from app.repo.service import RepoService, get_repo_service
 from app.sandbox.service import SandboxService, get_sandbox_service
@@ -33,10 +43,21 @@ STATUS_BY_RUN_ERROR: dict[type[RunError], int] = {
     RunConflictError: status.HTTP_409_CONFLICT,
 }
 
+STATUS_BY_PULL_REQUEST_ERROR: dict[type[PullRequestError], int] = {
+    NothingToPublishError: status.HTTP_409_CONFLICT,
+    PullRequestInProgressError: status.HTTP_409_CONFLICT,
+    GitHubAuthError: status.HTTP_401_UNAUTHORIZED,
+    ForkNotReadyError: status.HTTP_503_SERVICE_UNAVAILABLE,
+}
+
 
 class CreateRunRequest(CamelModel):
     issue: str = Field(min_length=1, max_length=MAX_ISSUE_LENGTH)
     verification_contract: VerificationContract | None = None
+
+
+class PullRequestResponse(CamelModel):
+    url: str
 
 
 class RunCreatedResponse(CamelModel):
@@ -103,6 +124,7 @@ class RunResponse(CamelModel):
     contract: ContractResponse | None
     criterion_results: list[CriterionResultResponse]
     review: ReviewResponse | None
+    pull_request_url: str | None
     events: list[RunEventResponse]
 
 
@@ -165,6 +187,7 @@ def to_run_response(run: Run) -> RunResponse:
             CriterionResultResponse(**item.model_dump()) for item in run.criterion_results
         ],
         review=(ReviewResponse(**run.review.model_dump()) if run.review else None),
+        pull_request_url=run.pull_request_url,
         events=[
             RunEventResponse(
                 seq=event.seq,
@@ -242,3 +265,31 @@ async def get_run(repo_id: str, run_id: str, runs: RunServiceDep) -> RunResponse
     except RunError as exc:
         raise to_run_http_error(exc) from exc
     return to_run_response(run)
+
+
+@router.post(
+    "/{run_id}/pull-request", response_model=PullRequestResponse, response_model_by_alias=True
+)
+async def create_pull_request(
+    repo_id: str,
+    run_id: str,
+    runs: RunServiceDep,
+    repos: Annotated[RepoService, Depends(get_repo_service)],
+    pulls: Annotated[PullRequestService, Depends(get_pull_request_service)],
+    session: Annotated[Session, Depends(require_session)],
+) -> PullRequestResponse:
+    """Open a pull request for a finished run on GitHub, as the signed-in user."""
+    try:
+        run = runs.get(repo_id, run_id)
+        record = repos.get_record(repo_id)
+    except RepoError as exc:
+        raise to_http_error(exc) from exc
+    except RunError as exc:
+        raise to_run_http_error(exc) from exc
+    try:
+        url = await pulls.open(run, record.workspace, record.summary.name, session)
+    except PullRequestError as exc:
+        logger.warning("pull request for run %s failed: %s", run_id, exc)
+        status_code = STATUS_BY_PULL_REQUEST_ERROR.get(type(exc), status.HTTP_502_BAD_GATEWAY)
+        raise HTTPException(status_code, exc.public_message) from exc
+    return PullRequestResponse(url=url)

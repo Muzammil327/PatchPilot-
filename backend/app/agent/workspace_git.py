@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,8 +23,8 @@ class RunBranch:
     base_commit: str
 
 
-def run_git(workspace: Path, *args: str) -> str:
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+def run_git(workspace: Path, *args: str, extra_env: Mapping[str, str] | None = None) -> str:
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", **(extra_env or {})}
     try:
         result = subprocess.run(
             [*GIT_BASE_ARGS, *args],

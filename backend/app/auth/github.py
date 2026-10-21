@@ -19,6 +19,7 @@ REQUEST_TIMEOUT_SECONDS = 15.0
 
 @dataclass(frozen=True)
 class GitHubUser:
+    id: int
     login: str
     name: str | None
     avatar_url: str
@@ -82,11 +83,13 @@ class GitHubOAuthClient:
             raise OAuthExchangeError(f"user lookup returned HTTP {response.status_code}")
         body = response.json()
         login = body.get("login") if isinstance(body, dict) else None
-        if not isinstance(login, str) or not login:
-            raise OAuthExchangeError("user lookup returned no login")
+        user_id = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(login, str) or not login or not isinstance(user_id, int):
+            raise OAuthExchangeError("user lookup returned no login or id")
         name = body.get("name")
         avatar_url = body.get("avatar_url")
         return GitHubUser(
+            id=user_id,
             login=login,
             name=name if isinstance(name, str) and name else None,
             avatar_url=avatar_url if isinstance(avatar_url, str) else "",

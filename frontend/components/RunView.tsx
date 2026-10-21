@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { DiffView } from "@/components/DiffView";
+import { PullRequestPanel } from "@/components/PullRequestPanel";
 import {
   ApiError,
   fetchRun,
@@ -206,9 +207,12 @@ function RunBody({
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-medium">Changes</h3>
               <DiffView diff={run.diff} onSelectFile={onSelectFile} />
-              <p className="text-xs text-muted">
-                Applied to PatchPilot&apos;s working copy only; the GitHub repository is unchanged.
-              </p>
+              <PullRequestPanel
+                repoId={run.repoId}
+                runId={run.runId}
+                existingUrl={run.pullRequestUrl}
+                isVerified={run.status === "succeeded"}
+              />
             </section>
           )}
           {run.status === "no_changes" && (

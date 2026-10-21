@@ -9,7 +9,7 @@ from app.main import app
 
 TEST_SESSION = Session(
     session_id="test-session",
-    user=GitHubUser(login="octocat", name="The Octocat", avatar_url=""),
+    user=GitHubUser(id=583231, login="octocat", name="The Octocat", avatar_url=""),
     access_token="test-token",
     expires_at=float("inf"),
 )

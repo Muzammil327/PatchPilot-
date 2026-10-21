@@ -82,6 +82,7 @@ class Run:
     contract: VerificationContract | None = None
     criterion_results: list[CriterionResult] = field(default_factory=list)
     review: ReviewResult | None = None
+    pull_request_url: str | None = None
 
     @property
     def is_active(self) -> bool:

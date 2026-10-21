@@ -23,7 +23,13 @@ def github(request: httpx.Request) -> httpx.Response:
     if request.url.path == "/user":
         assert request.headers["Authorization"] == "Bearer gho_user"
         return httpx.Response(
-            200, json={"login": "octocat", "name": "The Octocat", "avatar_url": "https://a/x.png"}
+            200,
+            json={
+                "id": 583231,
+                "login": "octocat",
+                "name": "The Octocat",
+                "avatar_url": "https://a/x.png",
+            },
         )
     return httpx.Response(404)
 
@@ -158,7 +164,7 @@ def test_login_without_oauth_config_is_unavailable() -> None:
 def test_expired_session_is_rejected() -> None:
     now = [1000.0]
     store = SessionStore(clock=lambda: now[0])
-    session = store.create(GitHubUser(login="octocat", name=None, avatar_url=""), "token")
+    session = store.create(GitHubUser(id=1, login="octocat", name=None, avatar_url=""), "token")
     now[0] += 8 * 24 * 60 * 60
 
     assert store.get(session.session_id) is None
