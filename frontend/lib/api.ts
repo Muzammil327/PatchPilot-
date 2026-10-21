@@ -6,6 +6,12 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").trim().replace
 const MISSING_API_URL_MESSAGE =
   "The backend URL is not configured. Set NEXT_PUBLIC_API_BASE_URL and rebuild the frontend.";
 
+export interface GitHubUser {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+}
+
 export interface PromptResponse {
   output: string;
   model: string;
@@ -191,6 +197,13 @@ export function isRepoMissingError(error: unknown): boolean {
   );
 }
 
+const HTTP_UNAUTHORIZED = 401;
+
+/** No GitHub session: never signed in, signed out, or the backend restarted. */
+export function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === HTTP_UNAUTHORIZED;
+}
+
 const RUN_MISSING_DETAIL = "Run not found";
 
 /** The backend no longer has this run (runs are in memory and reset on restart). */
@@ -234,11 +247,12 @@ function postJson<TResponse>(
   });
 }
 
-async function requestJson<TResponse>(path: string, init: RequestInit): Promise<TResponse> {
+async function request(path: string, init: RequestInit): Promise<Response> {
   if (!API_BASE_URL) throw new ApiError(MISSING_API_URL_MESSAGE, 0);
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, init);
+    // The GitHub session is an httpOnly cookie on the backend's domain.
+    response = await fetch(`${API_BASE_URL}${path}`, { ...init, credentials: "include" });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError("Cannot reach the PatchPilot backend.", 0);
@@ -247,7 +261,25 @@ async function requestJson<TResponse>(path: string, init: RequestInit): Promise<
   if (!response.ok) {
     throw new ApiError(await readErrorMessage(response), response.status);
   }
+  return response;
+}
+
+async function requestJson<TResponse>(path: string, init: RequestInit): Promise<TResponse> {
+  const response = await request(path, init);
   return (await response.json()) as TResponse;
+}
+
+/** Full-page navigation target for "Continue with GitHub"; the backend redirects to GitHub. */
+export function githubLoginUrl(): string {
+  return `${API_BASE_URL}/api/auth/github/login`;
+}
+
+export function fetchCurrentUser(signal?: AbortSignal): Promise<GitHubUser> {
+  return requestJson<GitHubUser>("/api/auth/me", { signal });
+}
+
+export async function signOut(): Promise<void> {
+  await request("/api/auth/logout", { method: "POST" });
 }
 
 export function fetchPromptCompletion(

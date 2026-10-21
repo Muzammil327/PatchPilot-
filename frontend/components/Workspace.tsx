@@ -12,7 +12,8 @@ import { RepoSearch } from "@/components/RepoSearch";
 import { RunIssueForm } from "@/components/RunIssueForm";
 import { RunView } from "@/components/RunView";
 import { SearchResults } from "@/components/SearchResults";
-import { fetchRepo, type RepoSummary } from "@/lib/api";
+import { UserMenu } from "@/components/UserMenu";
+import { fetchRepo, type GitHubUser, type RepoSummary } from "@/lib/api";
 import { useRepoMap } from "@/lib/use-repo-map";
 
 // Remembers the linked repo across page refreshes. The backend registry is in memory,
@@ -56,7 +57,12 @@ async function restoreRepo(signal: AbortSignal): Promise<RepoSummary | null> {
   }
 }
 
-export function Workspace() {
+interface WorkspaceProps {
+  user: GitHubUser;
+  onSignOut: () => void;
+}
+
+export function Workspace({ user, onSignOut }: WorkspaceProps) {
   const [state, setState] = useState<WorkspaceState>({ status: "restoring" });
 
   useEffect(() => {
@@ -98,6 +104,7 @@ export function Workspace() {
     case "disconnected":
       return (
         <CenteredPage>
+          <UserMenu user={user} onSignOut={onSignOut} />
           <RepoConnect
             onConnected={handleConnected}
             initialUrl={state.lastUrl}
@@ -113,12 +120,14 @@ export function Workspace() {
           repo={state.repo}
           onChangeRepo={handleChangeRepo}
           onRepoMissing={handleRepoMissing}
+          user={user}
+          onSignOut={onSignOut}
         />
       );
   }
 }
 
-function CenteredPage({ children }: { children: ReactNode }) {
+export function CenteredPage({ children }: { children: ReactNode }) {
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 py-12 sm:px-8 sm:py-16">
       <header className="flex flex-col gap-2">
@@ -136,6 +145,8 @@ interface ConnectedWorkspaceProps {
   repo: RepoSummary;
   onChangeRepo: () => void;
   onRepoMissing: (lastUrl: string) => void;
+  user: GitHubUser;
+  onSignOut: () => void;
 }
 
 type DetailView =
@@ -151,7 +162,13 @@ const BOTTOM_TABS: { id: BottomTab; label: string }[] = [
   { id: "fix", label: "Fix an issue" },
 ];
 
-function ConnectedWorkspace({ repo, onChangeRepo, onRepoMissing }: ConnectedWorkspaceProps) {
+function ConnectedWorkspace({
+  repo,
+  onChangeRepo,
+  onRepoMissing,
+  user,
+  onSignOut,
+}: ConnectedWorkspaceProps) {
   const mapState = useRepoMap(repo.repoId);
   const [view, setView] = useState<DetailView>({ kind: "overview" });
   const [bottomTab, setBottomTab] = useState<BottomTab>("ask");
@@ -181,6 +198,7 @@ function ConnectedWorkspace({ repo, onChangeRepo, onRepoMissing }: ConnectedWork
     <main className="grid flex-1 lg:h-dvh lg:flex-none lg:grid-cols-[20rem_1fr] lg:grid-rows-1 lg:overflow-hidden">
       <aside className="flex flex-col gap-4 border-b border-border p-4 lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
         <h1 className="text-lg font-semibold tracking-tight">PatchPilot</h1>
+        <UserMenu user={user} onSignOut={onSignOut} />
         <RepoHeader repo={repo} onChangeRepo={onChangeRepo} />
         <RepoSearch onSearch={(query) => setView({ kind: "search", query })} />
         <RepoFileList

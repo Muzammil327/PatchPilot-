@@ -3,10 +3,11 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import commands, health, prompt, repos, runs
+from app.api import auth, commands, health, prompt, repos, runs
+from app.api.auth import require_session
 from app.config import get_settings
 
 settings = get_settings()
@@ -22,6 +23,8 @@ app = FastAPI(title="PatchPilot API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
+    # The GitHub session travels as a cookie, so the browser must send credentials.
+    allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
@@ -47,8 +50,11 @@ async def request_logging(
     return response
 
 
+signed_in = [Depends(require_session)]
+
 app.include_router(health.router)
-app.include_router(prompt.router)
-app.include_router(repos.router)
-app.include_router(runs.router)
-app.include_router(commands.router)
+app.include_router(auth.router)
+app.include_router(prompt.router, dependencies=signed_in)
+app.include_router(repos.router, dependencies=signed_in)
+app.include_router(runs.router, dependencies=signed_in)
+app.include_router(commands.router, dependencies=signed_in)

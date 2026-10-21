@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -51,8 +51,27 @@ class Settings(BaseSettings):
     sandbox_install_timeout_seconds: float = Field(default=600.0, gt=0)
     sandbox_command_timeout_seconds: float = Field(default=300.0, gt=0)
 
+    # GitHub OAuth App ("Continue with GitHub"). The callback URL must match the one
+    # registered on the app and point at this backend's /api/auth/github/callback.
+    # Env names are case-insensitive; GITHUB_ClientID / GITHUB_ClientSecrets are also accepted.
+    github_client_id: str = Field(
+        default="", validation_alias=AliasChoices("github_client_id", "github_clientid")
+    )
+    github_client_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("github_client_secret", "github_clientsecrets"),
+    )
+    github_callback_url: str = ""
+    # true when the frontend and backend are on different sites (e.g. Vercel + Railway):
+    # the session cookie is then sent cross-site, which needs SameSite=None; Secure (HTTPS).
+    session_cookie_cross_site: bool = False
+
     frontend_origin: str = "http://localhost:3000"
     log_level: str = "INFO"
+
+    @property
+    def is_github_oauth_configured(self) -> bool:
+        return all((self.github_client_id, self.github_client_secret, self.github_callback_url))
 
     @property
     def is_llm_configured(self) -> bool:

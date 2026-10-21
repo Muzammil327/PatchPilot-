@@ -1,5 +1,5 @@
-import { Workspace } from "@/components/Workspace";
+import { AuthGate } from "@/components/AuthGate";
 
 export default function Home() {
-  return <Workspace />;
+  return <AuthGate />;
 }
