@@ -107,6 +107,7 @@ App: <http://localhost:3000>
 | `LOG_LEVEL` | No | Backend log level (default `INFO`) |
 | `GITHUB_TOKEN` | Phase 2+ | GitHub access for cloning and PRs |
 | `NEXT_PUBLIC_API_BASE_URL` | No | Backend URL for the frontend (`frontend/.env.local`) |
+| `BACKEND_URL` | No | Frontend host only: forwards `/api/*` to this backend so the session cookie is first-party |
 
 ## API
 
