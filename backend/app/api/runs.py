@@ -8,6 +8,7 @@ from app.agent.runs import (
     Run,
     RunConflictError,
     RunError,
+    RunNotActiveError,
     RunNotFoundError,
     RunStore,
     get_run_store,
@@ -41,6 +42,7 @@ MAX_ISSUE_LENGTH = 4000
 STATUS_BY_RUN_ERROR: dict[type[RunError], int] = {
     RunNotFoundError: status.HTTP_404_NOT_FOUND,
     RunConflictError: status.HTTP_409_CONFLICT,
+    RunNotActiveError: status.HTTP_409_CONFLICT,
 }
 
 STATUS_BY_PULL_REQUEST_ERROR: dict[type[PullRequestError], int] = {
@@ -63,6 +65,10 @@ class PullRequestResponse(CamelModel):
 class RunCreatedResponse(CamelModel):
     run_id: str
     status: str
+
+
+class ActiveRunResponse(CamelModel):
+    run_id: str | None
 
 
 class ContractRequest(CamelModel):
@@ -256,10 +262,32 @@ async def create_run_contract(
     return ContractResponse(criteria=[item.model_dump(by_alias=True) for item in contract.criteria])
 
 
+@router.get("/active", response_model=ActiveRunResponse, response_model_by_alias=True)
+async def get_active_run(repo_id: str, runs: RunServiceDep) -> ActiveRunResponse:
+    """The repository's run in progress, so a reloaded page can show it instead of the form."""
+    try:
+        run = runs.active(repo_id)
+    except RepoError as exc:
+        raise to_http_error(exc) from exc
+    return ActiveRunResponse(run_id=run.run_id if run else None)
+
+
 @router.get("/{run_id}", response_model=RunResponse, response_model_by_alias=True)
 async def get_run(repo_id: str, run_id: str, runs: RunServiceDep) -> RunResponse:
     try:
         run = runs.get(repo_id, run_id)
+    except RepoError as exc:
+        raise to_http_error(exc) from exc
+    except RunError as exc:
+        raise to_run_http_error(exc) from exc
+    return to_run_response(run)
+
+
+@router.post("/{run_id}/cancel", response_model=RunResponse, response_model_by_alias=True)
+async def cancel_run(repo_id: str, run_id: str, runs: RunServiceDep) -> RunResponse:
+    """Stop a run right away: the agent is interrupted and its sandbox command killed."""
+    try:
+        run = runs.cancel(repo_id, run_id)
     except RepoError as exc:
         raise to_http_error(exc) from exc
     except RunError as exc:

@@ -6,7 +6,7 @@ from app.config import Settings, get_settings
 from app.repo.service import RepoService
 from app.sandbox.commands import CommandName, resolve_command
 from app.sandbox.errors import SandboxBusyError
-from app.sandbox.runner import CommandResult, DockerRunner
+from app.sandbox.runner import CommandResult, DockerRunner, new_container_name
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,13 @@ class SandboxService:
         if repo_id in self._busy:
             raise SandboxBusyError(f"repo {repo_id} already has a command running")
         self._busy.add(repo_id)
+        container = new_container_name()
         try:
-            result = await asyncio.to_thread(self.runner.run, record.workspace, command)
+            result = await asyncio.to_thread(self.runner.run, record.workspace, command, container)
+        except asyncio.CancelledError:
+            # The worker thread keeps waiting on `docker run`; stopping the container ends it.
+            await asyncio.to_thread(self.runner.kill, container)
+            raise
         finally:
             self._busy.discard(repo_id)
         logger.info(

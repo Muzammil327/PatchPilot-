@@ -1,3 +1,4 @@
+import asyncio
 import json
 import subprocess
 from collections.abc import Iterator
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.agent.orchestrator import parse_json_action
 from app.agent.runs import RunStore, get_run_store
 from app.agent.service import RunService
+from app.agent.verification import Criterion, VerificationContract
 from app.api.llm import get_llm_client
 from app.api.runs import get_run_service
 from app.config import Settings
@@ -723,3 +725,82 @@ def test_run_command_rejects_a_command_outside_the_allow_list(
     assert run["status"] == "no_changes"
     tool_message = model.requests[1]["messages"][-1]
     assert "Invalid arguments for run_command" in tool_message["content"]
+
+
+def test_active_run_is_reported_until_it_is_cancelled(repo_service: RepoService) -> None:
+    repo_id = connect()
+    active_url = f"/api/repos/{repo_id}/runs/active"
+    assert client.get(active_url).json() == {"runId": None}
+    run = app.dependency_overrides[get_run_store]().create(repo_id, "already running")
+    assert client.get(active_url).json() == {"runId": run.run_id}
+
+    response = client.post(f"/api/repos/{repo_id}/runs/{run.run_id}/cancel")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "cancelled" and body["finishedAt"] is not None
+    assert body["events"][-1]["type"] == "cancelled"
+    assert client.get(active_url).json() == {"runId": None}
+
+
+def test_only_a_run_in_progress_can_be_cancelled(repo_service: RepoService) -> None:
+    repo_id = connect()
+    run = app.dependency_overrides[get_run_store]().create(repo_id, "done already")
+    run.finish("succeeded")
+
+    finished = client.post(f"/api/repos/{repo_id}/runs/{run.run_id}/cancel")
+
+    assert finished.status_code == 409
+    assert finished.json() == {"detail": "This run is not in progress"}
+    assert run.status == "succeeded"
+    assert client.post(f"/api/repos/{repo_id}/runs/missing/cancel").status_code == 404
+    assert client.get("/api/repos/missing/runs/active").status_code == 404
+
+
+class HangingSandbox(FakeSandbox):
+    """Edits the workspace, then blocks inside its first command until cancelled."""
+
+    def __init__(self, workspace: Path):
+        super().__init__()
+        self.workspace = workspace
+        self.started: asyncio.Event | None = None
+
+    async def run(self, repos: RepoService, repo_id: str, name: CommandName) -> CommandResult:
+        self.calls.append(name)
+        (self.workspace / "half-done.txt").write_text("partial edit", encoding="utf-8")
+        assert self.started is not None
+        self.started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("the command should have been cancelled")
+
+
+def test_cancel_interrupts_the_agent_and_discards_its_edits(repo_service: RepoService) -> None:
+    repo_id = connect()
+    workspace = repo_service.get_record(repo_id).workspace
+    store = app.dependency_overrides[get_run_store]()
+    sandbox = HangingSandbox(workspace)
+    service = RunService(
+        repo_service, store, Settings(_env_file=None, agent_planning=False), sandbox
+    )
+    contract = VerificationContract(
+        criteria=[Criterion(id="behavior", description="Totals are right", kind="behavior")]
+    )
+    run = service.start(repo_id, "Total should count the items", contract)
+    llm = LLMClient(
+        Settings(_env_file=None, **LLM_SETTINGS), transport=httpx.MockTransport(ScriptedModel())
+    )
+
+    async def cancel_mid_command() -> None:
+        sandbox.started = asyncio.Event()
+        execution = asyncio.create_task(service.execute(run, llm))
+        await sandbox.started.wait()
+        service.cancel(repo_id, run.run_id)
+        await execution
+
+    asyncio.run(cancel_mid_command())
+
+    assert run.status == "cancelled"
+    assert run.events[-1].type == "cancelled"
+    assert sandbox.calls == ["install"]
+    assert not (workspace / "half-done.txt").exists()
+    assert store.active_for(repo_id) is None

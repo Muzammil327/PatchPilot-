@@ -83,10 +83,12 @@ class DockerRunner:
             "sh", "-c", command.script,
         ]  # fmt: skip
 
-    def run(self, workspace: Path, command: SandboxCommand) -> CommandResult:
-        """Blocking; call from a worker thread."""
+    def run(
+        self, workspace: Path, command: SandboxCommand, container: str | None = None
+    ) -> CommandResult:
+        """Blocking; call from a worker thread. `container` lets the caller kill it early."""
         exclude_dependency_folders(workspace)
-        container = f"patchpilot-{uuid.uuid4().hex[:12]}"
+        container = container or new_container_name()
         args = self.build_args(workspace, command, container)
         timeout = self.timeout_for(command)
         started = time.perf_counter()
@@ -138,7 +140,11 @@ class DockerRunner:
                 timeout=KILL_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.TimeoutExpired):
-            logger.warning("could not kill timed-out container %s", container)
+            logger.warning("could not kill container %s", container)
+
+
+def new_container_name() -> str:
+    return f"patchpilot-{uuid.uuid4().hex[:12]}"
 
 
 def dependency_volume(workspace: Path) -> str:

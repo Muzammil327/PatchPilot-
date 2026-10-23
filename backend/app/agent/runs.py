@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -7,7 +8,7 @@ from typing import Literal
 from app.agent.planner import AgentPlan
 from app.agent.verification import CriterionResult, ReviewResult, VerificationContract
 
-RunStatus = Literal["running", "succeeded", "no_changes", "unverified", "failed"]
+RunStatus = Literal["running", "succeeded", "no_changes", "unverified", "failed", "cancelled"]
 EventType = Literal[
     "started",
     "baseline",
@@ -24,6 +25,7 @@ EventType = Literal[
     "hypothesis_rejected",
     "finished",
     "failed",
+    "cancelled",
 ]
 
 MAX_EVENT_DETAIL_CHARS = 2000
@@ -39,6 +41,10 @@ class RunNotFoundError(RunError):
 
 class RunConflictError(RunError):
     public_message = "This repository already has a run in progress"
+
+
+class RunNotActiveError(RunError):
+    public_message = "This run is not in progress"
 
 
 def now_iso() -> str:
@@ -114,6 +120,11 @@ class Run:
         self.finished_at = now_iso()
         self.add_event("failed", error)
 
+    def cancel(self) -> None:
+        self.status = "cancelled"
+        self.finished_at = now_iso()
+        self.add_event("cancelled", "Run cancelled")
+
     def record_attempt(
         self,
         n: int,
@@ -138,9 +149,11 @@ class RunStore:
 
     def __init__(self) -> None:
         self._runs: dict[str, Run] = {}
+        # The task executing each active run, so a cancel can interrupt it mid-step.
+        self._tasks: dict[str, asyncio.Task[None]] = {}
 
     def create(self, repo_id: str, issue: str) -> Run:
-        if any(run.repo_id == repo_id and run.is_active for run in self._runs.values()):
+        if self.active_for(repo_id) is not None:
             raise RunConflictError(f"Repo {repo_id} has an active run")
         run = Run(run_id=uuid.uuid4().hex, repo_id=repo_id, issue=issue)
         self._runs[run.run_id] = run
@@ -150,6 +163,29 @@ class RunStore:
         run = self._runs.get(run_id)
         if run is None or run.repo_id != repo_id:
             raise RunNotFoundError(f"Unknown run {run_id!r} for repo {repo_id!r}")
+        return run
+
+    def active_for(self, repo_id: str) -> Run | None:
+        return next(
+            (run for run in self._runs.values() if run.repo_id == repo_id and run.is_active),
+            None,
+        )
+
+    def attach_task(self, run_id: str, task: asyncio.Task[None]) -> None:
+        self._tasks[run_id] = task
+
+    def detach_task(self, run_id: str) -> None:
+        self._tasks.pop(run_id, None)
+
+    def cancel(self, repo_id: str, run_id: str) -> Run:
+        run = self.get(repo_id, run_id)
+        if not run.is_active:
+            raise RunNotActiveError(f"Run {run_id!r} is {run.status}")
+        # Marked first: the interrupted task sees a finished run and records nothing more.
+        run.cancel()
+        task = self._tasks.pop(run_id, None)
+        if task is not None:
+            task.cancel()
         return run
 
 

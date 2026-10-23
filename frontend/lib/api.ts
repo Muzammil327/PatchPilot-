@@ -118,7 +118,13 @@ export interface AskResponse {
   issueSummary: string | null;
 }
 
-export type RunStatus = "running" | "succeeded" | "no_changes" | "unverified" | "failed";
+export type RunStatus =
+  | "running"
+  | "succeeded"
+  | "no_changes"
+  | "unverified"
+  | "failed"
+  | "cancelled";
 
 export type RunEventType =
   | "started"
@@ -135,7 +141,8 @@ export type RunEventType =
   | "verification_failed"
   | "hypothesis_rejected"
   | "finished"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface RunEvent {
   seq: number;
@@ -356,6 +363,26 @@ export function fetchRun(repoId: string, runId: string, signal?: AbortSignal): P
   return requestJson<AgentRun>(repoPath(repoId, `/runs/${encodeURIComponent(runId)}`), {
     signal,
   });
+}
+
+/** The repository's run in progress, or null; lets a reloaded page show it instead of the form. */
+export async function fetchActiveRunId(
+  repoId: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const body = await requestJson<{ runId: string | null }>(repoPath(repoId, "/runs/active"), {
+    signal,
+  });
+  return body.runId;
+}
+
+/** Stops a run right away and returns it as it is after the cancel. */
+export function cancelRun(repoId: string, runId: string, signal?: AbortSignal): Promise<AgentRun> {
+  return postJson<AgentRun>(
+    repoPath(repoId, `/runs/${encodeURIComponent(runId)}/cancel`),
+    {},
+    signal,
+  );
 }
 
 /** Opens (or returns the already opened) GitHub pull request for a finished run. */

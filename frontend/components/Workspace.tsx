@@ -13,7 +13,7 @@ import { RunIssueForm } from "@/components/RunIssueForm";
 import { RunView } from "@/components/RunView";
 import { SearchResults } from "@/components/SearchResults";
 import { UserMenu } from "@/components/UserMenu";
-import { fetchRepo, type GitHubUser, type RepoSummary } from "@/lib/api";
+import { fetchActiveRunId, fetchRepo, type GitHubUser, type RepoSummary } from "@/lib/api";
 import { useRepoMap } from "@/lib/use-repo-map";
 
 // Remembers the linked repo across page refreshes. The backend registry is in memory,
@@ -173,6 +173,8 @@ function ConnectedWorkspace({
   const [view, setView] = useState<DetailView>({ kind: "overview" });
   const [bottomTab, setBottomTab] = useState<BottomTab>("ask");
   const [latestRunId, setLatestRunId] = useState<string | null>(null);
+  // While a run is in progress only its progress shows; Ask and Fix return when it ends.
+  const [runningRunId, setRunningRunId] = useState<string | null>(null);
   // Bugs go through Ask first; Fix opens once Ask confirms one (or the user chooses "Fix anyway").
   const [fixHandoff, setFixHandoff] = useState<{ issue: string; key: number } | null>(null);
   const isFixUnlocked = fixHandoff !== null || latestRunId !== null;
@@ -183,6 +185,26 @@ function ConnectedWorkspace({
   useEffect(() => {
     if (isMapRepoMissing) handleRepoMissing();
   }, [isMapRepoMissing, handleRepoMissing]);
+
+  useEffect(() => {
+    // After a reload the run may still be going; show it instead of a form that would conflict.
+    const controller = new AbortController();
+    fetchActiveRunId(repo.repoId, controller.signal)
+      .then((runId) => {
+        if (!runId) return;
+        setLatestRunId(runId);
+        setRunningRunId(runId);
+        setView({ kind: "run", runId });
+      })
+      .catch(() => {
+        // Aborted, or the lookup failed: the form stays usable and reports a conflict itself.
+      });
+    return () => controller.abort();
+  }, [repo.repoId]);
+
+  const handleRunEnded = useCallback((runId: string) => {
+    setRunningRunId((current) => (current === runId ? null : current));
+  }, []);
 
   function showOverview() {
     setView({ kind: "overview" });
@@ -200,6 +222,11 @@ function ConnectedWorkspace({
   function showRun(runId: string) {
     setLatestRunId(runId);
     setView({ kind: "run", runId });
+  }
+
+  function handleRunStarted(runId: string) {
+    setRunningRunId(runId);
+    showRun(runId);
   }
 
   return (
@@ -236,6 +263,7 @@ function ConnectedWorkspace({
               onSelectFile={selectFile}
               onRepoMissing={handleRepoMissing}
               onClose={showOverview}
+              onEnded={handleRunEnded}
             />
           ) : (
             <RepoDetails
@@ -246,7 +274,31 @@ function ConnectedWorkspace({
             />
           )}
         </section>
-        <section aria-label="Ask or fix" className="flex flex-col gap-3 border-t border-border p-4 sm:p-6">
+        {runningRunId && (
+          <section
+            aria-label="Run in progress"
+            className="flex flex-wrap items-center gap-3 border-t border-border p-4 text-sm sm:p-6"
+          >
+            <p className="text-muted">
+              The agent is working on this repository. Ask and Fix return when the run ends.
+            </p>
+            {view.kind !== "run" && (
+              <button
+                type="button"
+                onClick={() => showRun(runningRunId)}
+                className="text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                View run
+              </button>
+            )}
+          </section>
+        )}
+        {/* Hidden rather than unmounted, so a draft or an answer survives the run. */}
+        <section
+          aria-label="Ask or fix"
+          hidden={runningRunId !== null}
+          className="flex flex-col gap-3 border-t border-border p-4 sm:p-6"
+        >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <div role="tablist" aria-label="Assistant mode" className="flex gap-1">
               {BOTTOM_TABS.map((tab) => {
@@ -292,7 +344,7 @@ function ConnectedWorkspace({
               key={fixHandoff?.key ?? "manual"}
               initialIssue={fixHandoff?.issue}
               repoId={repo.repoId}
-              onRunStarted={showRun}
+              onRunStarted={handleRunStarted}
               onRepoMissing={handleRepoMissing}
             />
             {latestRunId && view.kind !== "run" && (

@@ -92,6 +92,14 @@ class RunService:
         self.repos.get_record(repo_id)
         return self.store.get(repo_id, run_id)
 
+    def active(self, repo_id: str) -> Run | None:
+        self.repos.get_record(repo_id)
+        return self.store.active_for(repo_id)
+
+    def cancel(self, repo_id: str, run_id: str) -> Run:
+        self.repos.get_record(repo_id)
+        return self.store.cancel(repo_id, run_id)
+
     async def plan_run(
         self,
         run: Run,
@@ -126,6 +134,30 @@ class RunService:
 
     async def execute(self, run: Run, llm: LLMClient) -> None:
         """Run the agent to completion. Never raises: every outcome is recorded on the run."""
+        if not run.is_active:  # cancelled before it started
+            return
+        # A separate task, so a cancel interrupts the agent without cancelling the caller.
+        task = asyncio.create_task(self._execute(run, llm))
+        self.store.attach_task(run.run_id, task)
+        try:
+            await task
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise  # the server is shutting down, not a user cancel
+            await self._discard_changes(run)
+        finally:
+            self.store.detach_task(run.run_id)
+
+    async def _discard_changes(self, run: Run) -> None:
+        """Drop a cancelled run's half-made edits; the agent never commits, so HEAD is the base."""
+        try:
+            workspace = self.repos.get_record(run.repo_id).workspace
+            await asyncio.to_thread(reset_workspace, workspace, "HEAD")
+        except Exception:
+            logger.warning("run %s: could not clean the workspace after cancel", run.run_id)
+
+    async def _execute(self, run: Run, llm: LLMClient) -> None:
         try:
             record = self.repos.get_record(run.repo_id)
             workspace = record.workspace

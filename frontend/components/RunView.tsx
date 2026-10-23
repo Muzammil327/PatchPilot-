@@ -6,6 +6,7 @@ import { DiffView } from "@/components/DiffView";
 import { PullRequestPanel } from "@/components/PullRequestPanel";
 import {
   ApiError,
+  cancelRun,
   fetchRun,
   isRepoMissingError,
   isRunMissingError,
@@ -15,7 +16,7 @@ import {
   type RunStatus,
 } from "@/lib/api";
 
-const POLL_INTERVAL_MS = 1500;
+const POLL_INTERVAL_MS = 15_000;
 const MS_PER_SECOND = 1000;
 const ARGUMENT_PREVIEW_CHARS = 90;
 
@@ -30,6 +31,7 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   unverified: "Needs review",
   no_changes: "No changes",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 const STATUS_CLASS: Record<RunStatus, string> = {
@@ -38,6 +40,7 @@ const STATUS_CLASS: Record<RunStatus, string> = {
   unverified: "border-danger bg-danger-surface text-danger",
   no_changes: "border-border bg-surface text-muted",
   failed: "border-danger bg-danger-surface text-danger",
+  cancelled: "border-border bg-surface text-muted",
 };
 
 const EVENT_ICON: Record<RunEvent["type"], string> = {
@@ -56,7 +59,14 @@ const EVENT_ICON: Record<RunEvent["type"], string> = {
   tool_result: "✓",
   finished: "■",
   failed: "✕",
+  cancelled: "⊘",
 };
+
+function toLoadedState(run: AgentRun): RunViewState {
+  const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
+  const elapsedSeconds = Math.max(0, Math.round((end - Date.parse(run.createdAt)) / MS_PER_SECOND));
+  return { status: "loaded", run, elapsedSeconds };
+}
 
 interface RunViewProps {
   repoId: string;
@@ -64,27 +74,57 @@ interface RunViewProps {
   onSelectFile: (path: string) => void;
   onRepoMissing: () => void;
   onClose: () => void;
+  /** Called once the run is no longer in progress (finished, cancelled or gone). */
+  onEnded: (runId: string) => void;
 }
 
-export function RunView({ repoId, runId, onSelectFile, onRepoMissing, onClose }: RunViewProps) {
+export function RunView({
+  repoId,
+  runId,
+  onSelectFile,
+  onRepoMissing,
+  onClose,
+  onEnded,
+}: RunViewProps) {
   const [state, setState] = useState<RunViewState>({ status: "loading" });
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const isRepoMissing = state.status === "error" && state.isRepoMissing;
+  const isRunning = state.status === "loaded" && state.run.status === "running";
+  const hasEnded = state.status === "error" || (state.status === "loaded" && !isRunning);
 
   useEffect(() => {
     if (isRepoMissing) onRepoMissing();
   }, [isRepoMissing, onRepoMissing]);
 
   useEffect(() => {
+    if (hasEnded) onEnded(runId);
+  }, [hasEnded, onEnded, runId]);
+
+  useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A hidden tab skips its polls and catches up as soon as it is shown again.
+    let isPollPaused = false;
+
+    function scheduleNextPoll() {
+      timer = setTimeout(() => {
+        if (document.hidden) isPollPaused = true;
+        else void poll();
+      }, POLL_INTERVAL_MS);
+    }
+
+    function handleVisibilityChange() {
+      if (document.hidden || !isPollPaused) return;
+      isPollPaused = false;
+      void poll();
+    }
 
     async function poll() {
       try {
         const run = await fetchRun(repoId, runId, controller.signal);
-        const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
-        const elapsedSeconds = Math.max(0, Math.round((end - Date.parse(run.createdAt)) / MS_PER_SECOND));
-        setState({ status: "loaded", run, elapsedSeconds });
-        if (run.status === "running") timer = setTimeout(poll, POLL_INTERVAL_MS);
+        setState(toLoadedState(run));
+        if (run.status === "running") scheduleNextPoll();
       } catch (error) {
         if (controller.signal.aborted) return;
         const message = isRunMissingError(error)
@@ -97,24 +137,55 @@ export function RunView({ repoId, runId, onSelectFile, onRepoMissing, onClose }:
     }
 
     void poll();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       controller.abort();
       if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [repoId, runId]);
+
+  async function handleCancel() {
+    setIsCancelling(true);
+    setCancelError(null);
+    try {
+      setState(toLoadedState(await cancelRun(repoId, runId)));
+    } catch (error) {
+      setCancelError(error instanceof ApiError ? error.message : "Could not cancel the run.");
+    } finally {
+      setIsCancelling(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-start justify-between gap-2">
         <h2 className="text-sm font-semibold">Agent run</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 rounded-md border border-border px-2 py-1 text-xs hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
-        >
-          Overview
-        </button>
+        <div className="flex shrink-0 gap-2">
+          {isRunning && (
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={isCancelling}
+              className="rounded-md border border-danger px-2 py-1 text-xs text-danger hover:bg-danger-surface focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isCancelling ? "Cancelling…" : "Cancel run"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            Overview
+          </button>
+        </div>
       </div>
+      {cancelError && (
+        <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
+          {cancelError}
+        </p>
+      )}
       <div aria-live="polite">
         <RunBody state={state} onSelectFile={onSelectFile} />
       </div>
@@ -217,6 +288,9 @@ function RunBody({
           )}
           {run.status === "no_changes" && (
             <p className="text-sm text-muted">The agent finished without changing any files.</p>
+          )}
+          {run.status === "cancelled" && (
+            <p className="text-sm text-muted">The run was cancelled and its changes were discarded.</p>
           )}
         </div>
       );

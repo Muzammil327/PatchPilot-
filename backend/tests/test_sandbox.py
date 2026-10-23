@@ -1,21 +1,26 @@
+import asyncio
 import json
 import shutil
 import subprocess
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from app.config import Settings
 from app.repo.stack import Stack
-from app.sandbox.commands import resolve_command
+from app.sandbox.commands import SandboxCommand, resolve_command
 from app.sandbox.errors import CommandUnavailableError, SandboxUnavailableError
 from app.sandbox.runner import (
     MAX_OUTPUT_CHARS,
     TRIMMED_MARKER,
+    CommandResult,
     DockerRunner,
     exclude_dependency_folders,
     trim_output,
 )
+from app.sandbox.service import SandboxService
 
 NPM_STACK = Stack(language="typescript", package_manager="npm", scripts={"test": "vitest run"})
 
@@ -156,6 +161,49 @@ def test_timeout_kills_the_container(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert "partial output" in result.output and "timed out after 1s" in result.output
     container = calls[0][calls[0].index("--name") + 1]
     assert calls[1] == ["docker", "kill", container]
+
+
+class BlockingRunner(DockerRunner):
+    """Waits inside `docker run` until its container is killed."""
+
+    def __init__(self) -> None:
+        super().__init__(Settings(_env_file=None))
+        self.started = threading.Event()
+        self.killed: list[str] = []
+        self.containers: list[str | None] = []
+        self._released = threading.Event()
+
+    def run(
+        self, workspace: Path, command: SandboxCommand, container: str | None = None
+    ) -> CommandResult:
+        self.containers.append(container)
+        self.started.set()
+        self._released.wait(timeout=5)
+        return CommandResult(command.name, command.script, 137, "", 0, timed_out=False)
+
+    def kill(self, container: str) -> None:
+        self.killed.append(container)
+        self._released.set()
+
+
+def test_cancelled_command_kills_its_container(tmp_path: Path) -> None:
+    write(tmp_path, {"package.json": "{}"})
+    record = SimpleNamespace(workspace=tmp_path, summary=SimpleNamespace(stack=NPM_STACK))
+    repos = SimpleNamespace(get_record=lambda repo_id: record)
+    runner = BlockingRunner()
+    service = SandboxService(runner)
+
+    async def cancel_mid_command() -> None:
+        task = asyncio.create_task(service.run(repos, "repo", "test"))
+        await asyncio.to_thread(runner.started.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(cancel_mid_command())
+
+    assert runner.containers[0] is not None
+    assert runner.killed == runner.containers
 
 
 def test_missing_docker_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
