@@ -15,9 +15,16 @@ interface PullRequestPanelProps {
   runId: string;
   existingUrl: string | null;
   isVerified: boolean;
+  onOpened: () => void;
 }
 
-export function PullRequestPanel({ repoId, runId, existingUrl, isVerified }: PullRequestPanelProps) {
+export function PullRequestPanel({
+  repoId,
+  runId,
+  existingUrl,
+  isVerified,
+  onOpened,
+}: PullRequestPanelProps) {
   const [state, setState] = useState<PullRequestState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
 
@@ -34,6 +41,7 @@ export function PullRequestPanel({ repoId, runId, existingUrl, isVerified }: Pul
     try {
       const opened = await createPullRequest(repoId, runId, controller.signal);
       setState({ status: "opened", url: opened });
+      onOpened();
     } catch (error) {
       if (controller.signal.aborted) return;
       const message =

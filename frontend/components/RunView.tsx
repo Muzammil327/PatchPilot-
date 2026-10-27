@@ -77,6 +77,8 @@ interface RunViewProps {
   onClose: () => void;
   /** Called once the run is no longer in progress (finished, cancelled or gone). */
   onEnded: (runId: string) => void;
+  /** Called once the run has a pull request (opened now or earlier). */
+  onPullRequestOpened: (runId: string) => void;
 }
 
 export function RunView({
@@ -86,6 +88,7 @@ export function RunView({
   onRepoMissing,
   onClose,
   onEnded,
+  onPullRequestOpened,
 }: RunViewProps) {
   const [state, setState] = useState<RunViewState>({ status: "loading" });
   const [isCancelling, setIsCancelling] = useState(false);
@@ -93,10 +96,15 @@ export function RunView({
   const isRepoMissing = state.status === "error" && state.isRepoMissing;
   const isRunning = state.status === "loaded" && state.run.status === "running";
   const hasEnded = state.status === "error" || (state.status === "loaded" && !isRunning);
+  const hasPullRequest = state.status === "loaded" && state.run.pullRequestUrl !== null;
 
   useEffect(() => {
     if (isRepoMissing) onRepoMissing();
   }, [isRepoMissing, onRepoMissing]);
+
+  useEffect(() => {
+    if (hasPullRequest) onPullRequestOpened(runId);
+  }, [hasPullRequest, onPullRequestOpened, runId]);
 
   useEffect(() => {
     if (hasEnded) onEnded(runId);
@@ -188,7 +196,11 @@ export function RunView({
         </p>
       )}
       <div aria-live="polite">
-        <RunBody state={state} onSelectFile={onSelectFile} />
+        <RunBody
+          state={state}
+          onSelectFile={onSelectFile}
+          onPullRequestOpened={() => onPullRequestOpened(runId)}
+        />
       </div>
     </div>
   );
@@ -197,9 +209,11 @@ export function RunView({
 function RunBody({
   state,
   onSelectFile,
+  onPullRequestOpened,
 }: {
   state: RunViewState;
   onSelectFile: (path: string) => void;
+  onPullRequestOpened: () => void;
 }) {
   switch (state.status) {
     case "loading":
@@ -287,6 +301,7 @@ function RunBody({
                 runId={run.runId}
                 existingUrl={run.pullRequestUrl}
                 isVerified={run.status === "succeeded"}
+                onOpened={onPullRequestOpened}
               />
             </section>
           )}

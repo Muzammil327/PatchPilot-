@@ -175,6 +175,8 @@ function ConnectedWorkspace({
   const [latestRunId, setLatestRunId] = useState<string | null>(null);
   // While a run is in progress only its progress shows; Ask and Fix return when it ends.
   const [runningRunId, setRunningRunId] = useState<string | null>(null);
+  // Once a run's pull request is open that fix is done; Ask and Fix wait for "Start a new fix".
+  const [pullRequestRunId, setPullRequestRunId] = useState<string | null>(null);
   // Bugs go through Ask first; Fix opens once Ask confirms one (or the user chooses "Fix anyway").
   const [fixHandoff, setFixHandoff] = useState<{ issue: string; key: number } | null>(null);
   const isFixUnlocked = fixHandoff !== null || latestRunId !== null;
@@ -205,6 +207,16 @@ function ConnectedWorkspace({
   const handleRunEnded = useCallback((runId: string) => {
     setRunningRunId((current) => (current === runId ? null : current));
   }, []);
+
+  const handlePullRequestOpened = useCallback((runId: string) => {
+    setPullRequestRunId(runId);
+  }, []);
+
+  function handleStartNewFix() {
+    setPullRequestRunId(null);
+    // An empty handoff remounts the form, so the finished issue's text is cleared.
+    setFixHandoff({ issue: "", key: Date.now() });
+  }
 
   function showOverview() {
     setView({ kind: "overview" });
@@ -264,6 +276,7 @@ function ConnectedWorkspace({
               onRepoMissing={handleRepoMissing}
               onClose={showOverview}
               onEnded={handleRunEnded}
+              onPullRequestOpened={handlePullRequestOpened}
             />
           ) : (
             <RepoDetails
@@ -293,10 +306,34 @@ function ConnectedWorkspace({
             )}
           </section>
         )}
+        {!runningRunId && pullRequestRunId && (
+          <section
+            aria-label="Fix complete"
+            className="flex flex-wrap items-center gap-3 border-t border-border p-4 text-sm sm:p-6"
+          >
+            <p className="text-muted">The pull request for this fix is open.</p>
+            {!(view.kind === "run" && view.runId === pullRequestRunId) && (
+              <button
+                type="button"
+                onClick={() => showRun(pullRequestRunId)}
+                className="text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                View run
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleStartNewFix}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              Start a new fix
+            </button>
+          </section>
+        )}
         {/* Hidden rather than unmounted, so a draft or an answer survives the run. */}
         <section
           aria-label="Ask or fix"
-          hidden={runningRunId !== null}
+          hidden={runningRunId !== null || pullRequestRunId !== null}
           className="flex flex-col gap-3 border-t border-border p-4 sm:p-6"
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
