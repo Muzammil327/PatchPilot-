@@ -63,6 +63,60 @@ const EVENT_ICON: Record<RunEvent["type"], string> = {
   cancelled: "⊘",
 };
 
+const EDIT_TOOLS = new Set(["replace_code", "write_file"]);
+
+type StageState = "done" | "current" | "pending";
+
+/** The run's progress through plan → edit → test → review → PR, read from its events. */
+function runStages(run: AgentRun): { label: string; state: StageState }[] {
+  const has = (predicate: (event: RunEvent) => boolean) => run.events.some(predicate);
+  const reached = [
+    { label: "Plan", isDone: has((event) => event.type === "plan") },
+    {
+      label: "Edit",
+      isDone: has((event) => event.type === "tool_call" && EDIT_TOOLS.has(event.message)),
+    },
+    {
+      label: "Test",
+      isDone: has((event) => event.type === "tests_passed" || event.type === "tests_failed"),
+    },
+    { label: "Review", isDone: has((event) => event.type === "review") },
+    { label: "Pull request", isDone: run.pullRequestUrl !== null },
+  ];
+  const currentIndex = run.status === "running" ? reached.findIndex((stage) => !stage.isDone) : -1;
+  return reached.map((stage, index) => ({
+    label: stage.label,
+    state: stage.isDone ? "done" : index === currentIndex ? "current" : "pending",
+  }));
+}
+
+const STAGE_DOT_CLASS: Record<StageState, string> = {
+  done: "border-accent bg-accent text-accent-foreground",
+  current: "border-accent bg-accent-soft text-accent motion-safe:animate-pulse",
+  pending: "border-border bg-surface text-muted",
+};
+
+function RunStages({ run }: { run: AgentRun }) {
+  return (
+    <ol aria-label="Run progress" className="flex flex-wrap items-center gap-2 text-xs">
+      {runStages(run).map((stage, index) => (
+        <li key={stage.label} className="flex items-center gap-2">
+          {index > 0 && <span aria-hidden="true" className="h-px w-4 bg-border sm:w-6" />}
+          <span
+            className={`flex size-5 items-center justify-center rounded-full border font-semibold ${STAGE_DOT_CLASS[stage.state]}`}
+          >
+            {stage.state === "done" ? "✓" : index + 1}
+          </span>
+          <span className={stage.state === "pending" ? "text-muted" : "text-foreground"}>
+            {stage.label}
+            <span className="sr-only">: {stage.state}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function toLoadedState(run: AgentRun): RunViewState {
   const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
   const elapsedSeconds = Math.max(0, Math.round((end - Date.parse(run.createdAt)) / MS_PER_SECOND));
@@ -232,17 +286,38 @@ function RunBody({
       const { run, elapsedSeconds } = state;
       return (
         <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4">
             <div className="flex flex-wrap items-center gap-3 text-xs">
-              <span className={`rounded-full border px-3 py-1 font-semibold ${STATUS_CLASS[run.status]}`}>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-semibold ${STATUS_CLASS[run.status]}`}
+              >
+                <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
                 {STATUS_LABEL[run.status]}
               </span>
-              <span className="text-muted">
+              <span className="font-mono text-muted">
                 {run.steps} {run.steps === 1 ? "step" : "steps"} · {elapsedSeconds}s
               </span>
             </div>
-            <p className="text-sm">{run.issue}</p>
+            <RunStages run={run} />
+            <p className="text-sm leading-relaxed">{run.issue}</p>
           </div>
+
+          {run.status === "succeeded" && (
+            <div className="flex items-center gap-3 rounded-xl border border-accent bg-accent-soft p-4">
+              <span
+                aria-hidden="true"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent font-bold text-accent-foreground"
+              >
+                ✓
+              </span>
+              <div className="flex flex-col">
+                <p className="text-sm font-semibold text-accent">Patch verified</p>
+                <p className="text-xs text-muted">
+                  All required checks passed and the independent reviewer approved.
+                </p>
+              </div>
+            </div>
+          )}
 
           {(run.status === "failed" || run.status === "unverified") && run.error && (
             <div role="alert" className="flex flex-col gap-1 rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
