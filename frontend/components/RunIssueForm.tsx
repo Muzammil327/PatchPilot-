@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { ApiError, createVerificationContract, isRepoMissingError, startRun, type VerificationCriterion } from "@/lib/api";
+import { handleSubmitShortcut, SUBMIT_SHORTCUT_LABEL } from "@/lib/form-shortcuts";
 
 const MAX_ISSUE_LENGTH = 4000;
 
@@ -93,23 +94,34 @@ export function RunIssueForm({ repoId, onRunStarted, onRepoMissing, initialIssue
         value={issue}
         maxLength={MAX_ISSUE_LENGTH}
         onChange={(event) => { setIssue(event.target.value); setCriteria(null); setState({ status: "idle" }); }}
-        rows={2}
+        onKeyDown={handleSubmitShortcut}
+        rows={3}
         placeholder="e.g. The total() function in lib/cart.ts returns 0 instead of summing item prices."
-        className="w-full resize-y rounded-lg border border-border bg-surface p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="w-full resize-y rounded-xl border border-border bg-background p-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
       />
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="submit"
           disabled={isBusy || isEmpty}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
           {state.status === "generating" ? "Creating checklist…" : state.status === "starting" ? "Starting…" : criteria ? "Start with this checklist" : "Create success checklist"}
         </button>
-        {isEmpty && !isBusy && (
+        {isEmpty && !isBusy ? (
           <span className="text-sm text-muted">Describe an issue to run the agent.</span>
+        ) : (
+          !isBusy && (
+            <span className="text-xs text-muted">
+              <kbd className="rounded border border-border px-1 font-mono">{SUBMIT_SHORTCUT_LABEL}</kbd>{" "}
+              to continue
+            </span>
+          )
         )}
+        <span className="ml-auto font-mono text-xs text-muted">
+          {issue.length}/{MAX_ISSUE_LENGTH}
+        </span>
       </div>
-      {criteria && <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
+      {criteria && <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
         <h3 className="text-sm font-medium">Review success checklist before the agent edits</h3>
         {criteria.map((criterion, index) => <div key={criterion.id} className="flex gap-2">
           <input aria-label={`Success criterion ${index + 1}`} value={criterion.description} maxLength={300}

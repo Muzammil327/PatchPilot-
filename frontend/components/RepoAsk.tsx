@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { ApiError, askRepo, isRepoMissingError, type AskResponse } from "@/lib/api";
+import { handleSubmitShortcut, SUBMIT_SHORTCUT_LABEL } from "@/lib/form-shortcuts";
 
 const MAX_QUESTION_LENGTH = 1000;
 // Matches the backend's issue limit for runs.
@@ -75,21 +76,30 @@ export function RepoAsk({ repoId, onSelectFile, onRepoMissing, onFixIssue }: Rep
           value={question}
           maxLength={MAX_QUESTION_LENGTH}
           onChange={(event) => setQuestion(event.target.value)}
-          rows={2}
+          onKeyDown={handleSubmitShortcut}
+          rows={3}
           placeholder="e.g. The cart total is wrong when an item has quantity 2"
-          className="w-full resize-y rounded-lg border border-border bg-surface p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="w-full resize-y rounded-xl border border-border bg-background p-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
         />
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
             disabled={isLoading || isEmpty}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? "Asking Nemotron…" : "Ask"}
           </button>
-          {isEmpty && !isLoading && (
+          {isEmpty && !isLoading ? (
             <span className="text-sm text-muted">Enter a question to ask.</span>
+          ) : (
+            <span className="text-xs text-muted">
+              <kbd className="rounded border border-border px-1 font-mono">{SUBMIT_SHORTCUT_LABEL}</kbd>{" "}
+              to ask
+            </span>
           )}
+          <span className="ml-auto font-mono text-xs text-muted">
+            {question.length}/{MAX_QUESTION_LENGTH}
+          </span>
         </div>
       </form>
 
@@ -123,9 +133,14 @@ function AskResult({
       );
     case "loading":
       return (
-        <p className="animate-pulse text-sm text-muted motion-reduce:animate-none">
-          Finding relevant files and asking the model…
-        </p>
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
+          <p className="text-sm text-muted">Finding relevant files and asking the model…</p>
+          <div aria-hidden="true" className="flex flex-col gap-2 motion-safe:animate-pulse">
+            <span className="h-2.5 w-11/12 rounded bg-surface-raised" />
+            <span className="h-2.5 w-4/5 rounded bg-surface-raised" />
+            <span className="h-2.5 w-2/3 rounded bg-surface-raised" />
+          </div>
+        </div>
       );
     case "error":
       return (
@@ -140,7 +155,7 @@ function AskResult({
       const { result } = state;
       return (
         <div className="flex flex-col gap-2">
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-3 text-sm">
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-surface p-4 font-sans text-sm leading-relaxed">
             {result.answer || "(The model returned an empty answer.)"}
           </pre>
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -164,8 +179,8 @@ function AskResult({
             </span>
           </div>
           {result.isIssueConfirmed ? (
-            <p className="text-sm text-accent">
-              Bug confirmed. Moved to Fix an issue to prepare the fix.
+            <p className="rounded-lg border border-accent bg-accent-soft px-3 py-2 text-sm text-accent">
+              ✓ Bug confirmed. Moved to Fix an issue to prepare the fix.
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-3 text-sm">

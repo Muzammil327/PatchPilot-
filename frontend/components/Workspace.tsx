@@ -354,7 +354,11 @@ function ConnectedWorkspace({
           className="flex flex-col gap-3 border-t border-border p-4 sm:p-6"
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <div role="tablist" aria-label="Assistant mode" className="flex gap-1">
+            <div
+              role="tablist"
+              aria-label="Assistant mode"
+              className="flex gap-1 rounded-lg border border-border bg-surface p-1"
+            >
               {BOTTOM_TABS.map((tab) => {
                 const isLocked = tab.id === "fix" && !isFixUnlocked;
                 return (
@@ -368,8 +372,10 @@ function ConnectedWorkspace({
                     aria-describedby={isLocked ? "fix-locked-hint" : undefined}
                     disabled={isLocked}
                     onClick={() => setBottomTab(tab.id)}
-                    className={`rounded-md px-3 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${
-                      bottomTab === tab.id ? "bg-surface text-foreground" : "text-muted hover:text-foreground"
+                    className={`rounded-md px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${
+                      bottomTab === tab.id
+                        ? "bg-surface-raised text-foreground shadow-sm"
+                        : "text-muted hover:text-foreground"
                     }`}
                   >
                     {tab.label}
