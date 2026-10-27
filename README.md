@@ -35,37 +35,84 @@ Reviewer: Approved
 
 Full roadmap: [`phases.md`](phases.md) · Architecture: [`architecture.md`](architecture.md)
 
+## NVIDIA Nemotron and Nebius Token Factory
+
+Every model call in PatchPilot is an NVIDIA Nemotron model served by
+Nebius Token Factory through its OpenAI-compatible API
+(`NEBIUS_BASE_URL`, `NEBIUS_API_KEY`). Each role uses the model that suits it:
+
+| Role | Setting | What it does |
+| ---- | ------- | ------------ |
+| Planner | `MODEL_PLANNER` | Reads the issue and likely files, forms a root-cause hypothesis, plans the edit, and drafts the success checklist (verification contract) |
+| Worker | `MODEL_WORKER` | Drives the tool loop: lists, reads, and edits files, runs tests, and reacts to their output |
+| Reviewer | `MODEL_REVIEWER` (defaults to `MODEL_PLANNER`) | Independently reviews the final diff against the checklist |
+
+Where Token Factory helped:
+
+- **No model hosting.** No GPUs, drivers, or scaling to manage; the backend only needs a base
+  URL and an API key.
+- **Standard API.** The backend calls the OpenAI-compatible chat completions endpoint with
+  `httpx`, using native tool calling and falling back to a strict JSON protocol when an
+  endpoint rejects tool calls.
+- **Many calls per run.** One run makes a plan, a 5–25 step tool loop, a review, and up to three
+  attempts. Pay-per-token serverless inference keeps that practical.
+- **Per-role model choice.** Switching the Nemotron model for a role is a configuration change,
+  so cost and reasoning quality can be balanced without code changes.
+
 ## Platform
 
 | Part | Host | Role |
 | ---- | ---- | ---- |
 | Frontend | Vercel | Next.js app; forwards `/api/*` to the backend |
-| Backend | Railway | FastAPI API + agent; `railway.json` sets the start command and `/health` check |
+| Backend | AWS Lightsail | FastAPI API + agent on Ubuntu, behind Nginx (HTTPS), run by systemd; Docker for the sandbox |
 | Models | Nebius Token Factory | NVIDIA Nemotron |
 | Code host | GitHub | OAuth sign-in, cloning, pull requests |
 
-The browser only talks to the Vercel site. Next.js rewrites `/api/*` to the Railway backend,
-so the session cookie is first-party and no cross-site cookie is needed.
+The browser only talks to the Vercel site. Next.js rewrites `/api/*` to the backend, so the
+session cookie is first-party and no cross-site cookie is needed.
 
 ```
-Browser ──> Vercel (Next.js) ──/api/*──> Railway (FastAPI) ──> Nebius / GitHub
+Browser ──> Vercel (Next.js) ──/api/*──> Lightsail (Nginx ─> FastAPI) ──> Nebius / GitHub
 ```
 
 ### Deployment settings
 
-Set these in each host's dashboard (values are never committed):
+Values are never committed. Vercel's are set in its dashboard; the backend's live in a `.env`
+file at the repository root on the server.
 
 | Where | Variable | Value |
 | ----- | -------- | ----- |
-| Vercel | `BACKEND_URL` | The Railway backend URL |
+| Vercel | `BACKEND_URL` | The backend's HTTPS URL |
 | Vercel | `NEXT_PUBLIC_API_BASE_URL` | The Vercel frontend's own URL |
-| Railway | `NEBIUS_API_KEY`, `NEBIUS_BASE_URL`, `MODEL_PLANNER`, `MODEL_WORKER` | Model provider settings |
-| Railway | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | From the GitHub OAuth App |
-| Railway | `GITHUB_CALLBACK_URL` | `<frontend URL>/api/auth/github/callback` (must match the OAuth App) |
-| Railway | `FRONTEND_ORIGIN` | The Vercel frontend URL |
-| Railway | `SESSION_COOKIE_CROSS_SITE` | `false` (the `/api` rewrite keeps the cookie first-party) |
+| Backend | `NEBIUS_API_KEY`, `NEBIUS_BASE_URL`, `MODEL_PLANNER`, `MODEL_WORKER` | Model provider settings |
+| Backend | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | From the GitHub OAuth App |
+| Backend | `GITHUB_CALLBACK_URL` | `<frontend URL>/api/auth/github/callback` (must match the OAuth App) |
+| Backend | `FRONTEND_ORIGIN` | The Vercel frontend URL, without a trailing slash |
+| Backend | `SESSION_COOKIE_CROSS_SITE` | `false` (the `/api` rewrite keeps the cookie first-party) |
+| Backend | `WORKSPACE_ROOT` | A persistent folder for cloned repos, e.g. `/var/lib/patchpilot/workspaces` |
 
-Sessions, connected repositories, and runs are held in memory, so a backend redeploy signs
+### Backend on AWS Lightsail
+
+1. Create an Ubuntu 24.04 instance with **at least 2 GB RAM** (Docker and dependency installs
+   need it), attach a static IP, and open ports 22, 80, and 443.
+2. Install the system packages, and let the `ubuntu` user run Docker:
+   ```bash
+   sudo apt install -y git python3-venv python3-pip nginx docker.io
+   sudo usermod -aG docker ubuntu
+   ```
+3. Clone the repository, create `backend/.venv`, run `pip install -r backend/requirements.txt`,
+   and write the root `.env` (see the table above).
+4. Run the backend as a systemd service:
+   `uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers` from `backend/`, with
+   `EnvironmentFile` pointing at the `.env`. Use **one worker**: state is held in memory.
+5. Put Nginx in front (proxy to `127.0.0.1:8000`, with buffering off and long read timeouts for
+   run progress), then get a certificate with `certbot --nginx`.
+6. Point a DNS `A` record at the static IP and set Vercel's `BACKEND_URL` to the HTTPS URL.
+
+To deploy an update: `git pull`, reinstall requirements if they changed, then
+`sudo systemctl restart patchpilot`.
+
+Sessions, connected repositories, and runs are held in memory, so a backend restart signs
 everyone out and clears them. If Docker is not available on the backend host, a run still
 finishes but is marked **unverified** instead of verified.
 
@@ -81,7 +128,7 @@ finishes but is marked **unverified** instead of verified.
 ```
 PatchPilot/
 ├── frontend/          # Next.js dashboard
-├── backend/           # FastAPI API + agent (Railway config: railway.json, railpack.json)
+├── backend/           # FastAPI API + agent (railway.json, railpack.json: optional Railway config)
 ├── architecture.md    # Architecture
 ├── phases.md          # Build plan
 └── .env.example       # Environment variable template
@@ -197,4 +244,4 @@ All `/api/*` routes except `/api/auth/*` require a signed-in session.
 
 ## License
 
-TBD
+[MIT](LICENSE)
