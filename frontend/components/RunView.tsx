@@ -10,6 +10,7 @@ import {
   fetchRun,
   isRepoMissingError,
   isRunMissingError,
+  type AgentAttempt,
   type AgentPlan,
   type AgentRun,
   type RunEvent,
@@ -229,6 +230,15 @@ function RunBody({
             <p className="text-sm">{run.issue}</p>
           </div>
 
+          {(run.status === "failed" || run.status === "unverified") && run.error && (
+            <div role="alert" className="flex flex-col gap-1 rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
+              <p className="font-medium">{run.status === "failed" ? "Run failed" : "Fix not verified"}</p>
+              <p className="whitespace-pre-wrap">{run.error}</p>
+            </div>
+          )}
+
+          <RejectedAttempts attempts={run.attempts} />
+
           {run.plan && <PlanCard plan={run.plan} onSelectFile={onSelectFile} />}
 
           {run.contract && <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
@@ -258,12 +268,6 @@ function RunBody({
               ))}
             </ol>
           </section>
-
-          {run.status === "failed" && run.error && (
-            <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
-              {run.error}
-            </p>
-          )}
 
           {run.summary && (
             <section className="flex flex-col gap-2">
@@ -346,6 +350,26 @@ function PlanCard({
   );
 }
 
+function RejectedAttempts({ attempts }: { attempts: AgentAttempt[] }) {
+  const rejected = attempts.filter((attempt) => !attempt.testPassed && attempt.failureSummary);
+  if (rejected.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-danger bg-danger-surface p-4">
+      <h3 className="text-sm font-medium text-danger">Why attempts were rejected</h3>
+      <ul className="flex flex-col gap-3">
+        {rejected.map((attempt) => (
+          <li key={attempt.n} className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Attempt {attempt.n}</span>
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs">
+              {attempt.failureSummary}
+            </pre>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function argumentPreview(event: RunEvent): string {
   if (event.type !== "tool_call" || !event.detail) return "";
   const compact = event.detail.replace(/\s+/g, " ");
@@ -355,7 +379,10 @@ function argumentPreview(event: RunEvent): string {
 }
 
 function TimelineItem({ event }: { event: RunEvent }) {
-  const isFailure = event.type === "failed" || event.message.includes(" failed ");
+  const isFailure =
+    event.type === "failed" ||
+    event.type === "verification_failed" ||
+    event.message.includes(" failed ");
   const preview = argumentPreview(event);
   const line = (
     <span className="flex min-w-0 gap-2">
