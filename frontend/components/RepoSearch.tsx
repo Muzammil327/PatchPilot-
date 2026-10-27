@@ -14,9 +14,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 interface RepoSearchProps {
   onSearch: (query: string) => void;
+  /** Called by the "/" shortcut before focusing, so a collapsed sidebar can open first. */
+  onReveal?: () => void;
 }
 
-export function RepoSearch({ onSearch }: RepoSearchProps) {
+export function RepoSearch({ onSearch, onReveal }: RepoSearchProps) {
   const [query, setQuery] = useState("");
   const $inputRef = useRef<HTMLInputElement>(null);
   const isEmpty = query.trim().length === 0;
@@ -27,11 +29,13 @@ export function RepoSearch({ onSearch }: RepoSearchProps) {
       if (event.key !== FOCUS_SHORTCUT_KEY || event.ctrlKey || event.metaKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       event.preventDefault();
-      $inputRef.current?.focus();
+      onReveal?.();
+      // Wait a frame: a just-revealed input cannot take focus while it is still display: none.
+      requestAnimationFrame(() => $inputRef.current?.focus());
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [onReveal]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

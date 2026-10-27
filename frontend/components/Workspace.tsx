@@ -195,6 +195,7 @@ function ConnectedWorkspace({
   const [bottomTab, setBottomTab] = useState<BottomTab>("ask");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const $sidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const openSidebar = useCallback(() => setIsSidebarOpen(true), []);
   const [latestRunId, setLatestRunId] = useState<string | null>(null);
   // While a run is in progress only its progress shows; Ask and Fix return when it ends.
   const [runningRunId, setRunningRunId] = useState<string | null>(null);
@@ -314,7 +315,7 @@ function ConnectedWorkspace({
         >
           <UserMenu user={user} onSignOut={onSignOut} />
           <RepoHeader repo={repo} onChangeRepo={onChangeRepo} />
-          <RepoSearch onSearch={handleSearch} />
+          <RepoSearch onSearch={handleSearch} onReveal={openSidebar} />
           <RepoFileList
             files={repo.files}
             fileCount={repo.fileCount}
