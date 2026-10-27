@@ -46,8 +46,13 @@ export function RepoConnect({ onConnected, initialUrl = "", notice }: RepoConnec
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl border border-border p-4 sm:p-6">
-      <h2 className="text-lg font-semibold">Connect repository</h2>
+    <section className="flex flex-col gap-4 rounded-2xl border border-border bg-surface p-5 shadow-2xl shadow-black/40 sm:p-8">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-lg font-semibold">Connect a repository</h2>
+        <p className="text-sm text-muted">
+          PatchPilot clones it, scans the code, and maps its stack, routes, and tests.
+        </p>
+      </div>
       {notice && (
         <p role="status" className="rounded-lg border border-border bg-surface p-3 text-sm">
           {notice}
@@ -65,12 +70,12 @@ export function RepoConnect({ onConnected, initialUrl = "", notice }: RepoConnec
             value={url}
             onChange={(event) => setUrl(event.target.value)}
             placeholder="https://github.com/owner/repo"
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-sm outline-none transition-colors focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
           />
           <button
             type="submit"
             disabled={isLoading || isUrlEmpty}
-            className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="shrink-0 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-accent-foreground transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? "Cloning…" : "Connect"}
           </button>

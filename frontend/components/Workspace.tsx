@@ -2,6 +2,7 @@
 
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
+import { BrandMark } from "@/components/BrandMark";
 import { PromptForm } from "@/components/PromptForm";
 import { RepoConnect } from "@/components/RepoConnect";
 import { RepoDetails } from "@/components/RepoDetails";
@@ -129,12 +130,25 @@ export function Workspace({ user, onSignOut }: WorkspaceProps) {
 
 export function CenteredPage({ children }: { children: ReactNode }) {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 py-12 sm:px-8 sm:py-16">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">PatchPilot</h1>
-        <p className="text-muted">
-          Autonomous coding agent powered by NVIDIA Nemotron on Nebius Token Factory.
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 py-12 sm:px-8 sm:py-20">
+      <header className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <BrandMark className="size-10" />
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">PatchPilot</h1>
+        </div>
+        <p className="text-lg text-foreground sm:text-xl">
+          The AI engineer that <span className="text-accent">proves its fix</span> before it opens
+          the pull request.
         </p>
+        <ul className="flex flex-wrap gap-2 text-xs text-muted">
+          <li className="rounded-full border border-border bg-surface px-3 py-1">NVIDIA Nemotron</li>
+          <li className="rounded-full border border-border bg-surface px-3 py-1">
+            Nebius Token Factory
+          </li>
+          <li className="rounded-full border border-border bg-surface px-3 py-1">
+            Sandboxed tests + independent review
+          </li>
+        </ul>
       </header>
       {children}
     </main>
@@ -244,7 +258,10 @@ function ConnectedWorkspace({
   return (
     <main className="grid flex-1 lg:h-dvh lg:flex-none lg:grid-cols-[20rem_1fr] lg:grid-rows-1 lg:overflow-hidden">
       <aside className="flex flex-col gap-4 border-b border-border p-4 lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
-        <h1 className="text-lg font-semibold tracking-tight">PatchPilot</h1>
+        <div className="flex items-center gap-2">
+          <BrandMark className="size-7" />
+          <h1 className="text-lg font-semibold tracking-tight">PatchPilot</h1>
+        </div>
         <UserMenu user={user} onSignOut={onSignOut} />
         <RepoHeader repo={repo} onChangeRepo={onChangeRepo} />
         <RepoSearch onSearch={(query) => setView({ kind: "search", query })} />
