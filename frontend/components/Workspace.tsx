@@ -1,6 +1,13 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { BrandMark } from "@/components/BrandMark";
 import { PromptForm } from "@/components/PromptForm";
@@ -186,6 +193,8 @@ function ConnectedWorkspace({
   const mapState = useRepoMap(repo.repoId);
   const [view, setView] = useState<DetailView>({ kind: "overview" });
   const [bottomTab, setBottomTab] = useState<BottomTab>("ask");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const $sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const [latestRunId, setLatestRunId] = useState<string | null>(null);
   // While a run is in progress only its progress shows; Ask and Fix return when it ends.
   const [runningRunId, setRunningRunId] = useState<string | null>(null);
@@ -236,8 +245,21 @@ function ConnectedWorkspace({
     setView({ kind: "overview" });
   }
 
+  // Closing only shows on small screens: from lg up the sidebar is always visible.
   function selectFile(path: string) {
     setView({ kind: "file", path });
+    setIsSidebarOpen(false);
+  }
+
+  function handleSearch(query: string) {
+    setView({ kind: "search", query });
+    setIsSidebarOpen(false);
+  }
+
+  function handleSidebarKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Escape" || !isSidebarOpen) return;
+    setIsSidebarOpen(false);
+    $sidebarToggleRef.current?.focus();
   }
 
   function handleFixIssue(issue: string) {
@@ -257,20 +279,49 @@ function ConnectedWorkspace({
 
   return (
     <main className="grid flex-1 lg:h-dvh lg:flex-none lg:grid-cols-[20rem_1fr] lg:grid-rows-1 lg:overflow-hidden">
-      <aside className="flex flex-col gap-4 border-b border-border p-4 lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
+      <aside
+        onKeyDown={handleSidebarKeyDown}
+        className="flex flex-col gap-4 border-b border-border p-4 lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-b-0"
+      >
         <div className="flex items-center gap-2">
           <BrandMark className="size-7" />
           <h1 className="text-lg font-semibold tracking-tight">PatchPilot</h1>
+          <button
+            ref={$sidebarToggleRef}
+            type="button"
+            onClick={() => setIsSidebarOpen((current) => !current)}
+            aria-expanded={isSidebarOpen}
+            aria-controls="sidebar-panel"
+            className="ml-auto flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent lg:hidden"
+          >
+            <span className="max-w-32 truncate font-mono">{repo.name}</span>
+            <svg
+              viewBox="0 0 16 16"
+              aria-hidden="true"
+              className={`size-3 fill-none stroke-current transition-transform motion-reduce:transition-none ${isSidebarOpen ? "rotate-180" : ""}`}
+              strokeWidth="2"
+            >
+              <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="sr-only">{isSidebarOpen ? "Hide" : "Show"} repository and files</span>
+          </button>
         </div>
-        <UserMenu user={user} onSignOut={onSignOut} />
-        <RepoHeader repo={repo} onChangeRepo={onChangeRepo} />
-        <RepoSearch onSearch={(query) => setView({ kind: "search", query })} />
-        <RepoFileList
-          files={repo.files}
-          fileCount={repo.fileCount}
-          selectedPath={selectedPath}
-          onSelect={selectFile}
-        />
+        {/* Collapsed by default on small screens; always shown from lg up. Hidden, not
+            unmounted, so the file tree keeps its open folders and the search its text. */}
+        <div
+          id="sidebar-panel"
+          className={`${isSidebarOpen ? "flex" : "hidden"} min-h-0 flex-col gap-4 lg:flex`}
+        >
+          <UserMenu user={user} onSignOut={onSignOut} />
+          <RepoHeader repo={repo} onChangeRepo={onChangeRepo} />
+          <RepoSearch onSearch={handleSearch} />
+          <RepoFileList
+            files={repo.files}
+            fileCount={repo.fileCount}
+            selectedPath={selectedPath}
+            onSelect={selectFile}
+          />
+        </div>
       </aside>
 
       <div className="flex flex-col lg:min-h-0">
