@@ -8,6 +8,10 @@ const BACKEND_URL = (process.env.BACKEND_URL ?? "").trim().replace(/\/$/, "");
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  // The signed-in user's GitHub avatar in the workspace sidebar.
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "avatars.githubusercontent.com", pathname: "/**" }],
+  },
   async rewrites() {
     if (!BACKEND_URL) return [];
     return [{ source: "/api/:path*", destination: `${BACKEND_URL}/api/:path*` }];

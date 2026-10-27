@@ -79,7 +79,7 @@ export function RepoFileList({ files, fileCount, selectedPath, onSelect }: RepoF
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <h2 className="text-sm font-medium">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
         Files
         {files.length < fileCount && (
           <span className="font-normal text-muted">
@@ -119,7 +119,7 @@ function FolderContents({
   onSelect,
 }: FolderContentsProps) {
   return (
-    <ul className={`font-mono text-xs ${folder.path ? "ml-2 border-l border-border pl-2" : ""}`}>
+    <ul className={`font-mono text-xs ${folder.path ? "ml-3 border-l border-border pl-1.5" : ""}`}>
       {folder.folders.map((child) => {
         const isOpen = openFolders.has(child.path);
         return (
@@ -128,11 +128,17 @@ function FolderContents({
               type="button"
               onClick={() => onToggleFolder(child.path)}
               aria-expanded={isOpen}
-              className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
+              className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
             >
-              <span aria-hidden="true" className="w-3 text-muted">
-                {isOpen ? "▾" : "▸"}
-              </span>
+              <svg
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                className={`size-3 shrink-0 fill-none stroke-muted transition-transform motion-reduce:transition-none ${isOpen ? "rotate-90" : ""}`}
+                strokeWidth="2"
+              >
+                <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <FolderIcon />
               <span className="truncate">{child.name}</span>
             </button>
             {isOpen && (
@@ -155,16 +161,34 @@ function FolderContents({
               type="button"
               onClick={() => onSelect(file.path)}
               aria-current={isSelected ? "true" : undefined}
-              className={`flex w-full items-center gap-1 rounded px-1 py-0.5 text-left focus-visible:outline-2 focus-visible:outline-accent ${
-                isSelected ? "bg-accent text-accent-foreground" : "hover:bg-surface"
+              className={`flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left transition-colors focus-visible:outline-2 focus-visible:outline-accent ${
+                isSelected ? "bg-accent-soft text-accent" : "text-muted hover:bg-surface hover:text-foreground"
               }`}
             >
-              <span aria-hidden="true" className="w-3" />
+              <span aria-hidden="true" className="w-3 shrink-0" />
+              <FileIcon />
               <span className="truncate">{fileName(file.path)}</span>
             </button>
           </li>
         );
       })}
     </ul>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5 shrink-0 fill-accent-soft stroke-accent" strokeWidth="1.25">
+      <path d="M1.5 4.5a1 1 0 011-1h3.6l1.4 1.5h5.9a1 1 0 011 1v6.5a1 1 0 01-1 1h-10.9a1 1 0 01-1-1z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5 shrink-0 fill-none stroke-current" strokeWidth="1.25">
+      <path d="M4 1.5h5l3 3v10H4z" strokeLinejoin="round" />
+      <path d="M9 1.5v3h3" strokeLinejoin="round" />
+    </svg>
   );
 }
