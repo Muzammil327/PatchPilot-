@@ -44,3 +44,30 @@ export function SkeletonLines({ label, lines = 3 }: SkeletonLinesProps) {
     </div>
   );
 }
+
+interface ErrorStateProps {
+  message: string;
+  /** Omitted when trying again cannot help (e.g. the repository is gone). */
+  onRetry?: () => void;
+}
+
+/** A failed load: the message, and a Retry button when the request can be repeated. */
+export function ErrorState({ message, onRetry }: ErrorStateProps) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger"
+    >
+      <p>{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="shrink-0 rounded-md border border-danger px-3 py-1 text-xs font-medium transition-colors hover:bg-danger hover:text-background focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+}

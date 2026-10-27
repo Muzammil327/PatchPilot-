@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { EmptyState, SkeletonLines } from "@/components/EmptyState";
+import { EmptyState, ErrorState, SkeletonLines } from "@/components/EmptyState";
 import {
   ApiError,
   fetchRelevantFiles,
@@ -33,6 +33,8 @@ export function SearchResults({
   onRepoMissing,
 }: SearchResultsProps) {
   const [state, setState] = useState<ResultsState>({ status: "loading" });
+  // Bumped by a retry so the effect below runs the search again.
+  const [attempt, setAttempt] = useState(0);
   const isRepoMissing = state.status === "error" && state.isRepoMissing;
 
   useEffect(() => {
@@ -52,7 +54,12 @@ export function SearchResults({
         setState({ status: "error", message, isRepoMissing: isRepoMissingError(error) });
       });
     return () => controller.abort();
-  }, [repoId, query]);
+  }, [repoId, query, attempt]);
+
+  function handleRetry() {
+    setState({ status: "loading" });
+    setAttempt((current) => current + 1);
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -69,7 +76,7 @@ export function SearchResults({
         </button>
       </div>
       <div aria-live="polite">
-        <ResultsBody state={state} onSelectFile={onSelectFile} />
+        <ResultsBody state={state} onSelectFile={onSelectFile} onRetry={handleRetry} />
       </div>
     </div>
   );
@@ -78,18 +85,18 @@ export function SearchResults({
 function ResultsBody({
   state,
   onSelectFile,
+  onRetry,
 }: {
   state: ResultsState;
   onSelectFile: (path: string) => void;
+  onRetry: () => void;
 }) {
   switch (state.status) {
     case "loading":
       return <SkeletonLines label="Searching…" lines={4} />;
     case "error":
       return (
-        <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
-          {state.message}
-        </p>
+        <ErrorState message={state.message} onRetry={state.isRepoMissing ? undefined : onRetry} />
       );
     case "success":
       return (

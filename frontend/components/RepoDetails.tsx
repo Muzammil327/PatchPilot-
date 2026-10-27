@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { EmptyState, SkeletonLines } from "@/components/EmptyState";
+import { EmptyState, ErrorState, SkeletonLines } from "@/components/EmptyState";
 import { RepoRoutes } from "@/components/RepoRoutes";
 import type { FileMap, RepoSummary } from "@/lib/api";
 import type { RepoMapState } from "@/lib/use-repo-map";
@@ -139,9 +139,7 @@ function FileDetails({ state, path }: { state: RepoMapState; path: string }) {
       return <SkeletonLines label="Loading symbols…" lines={4} />;
     case "error":
       return (
-        <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
-          {state.message}
-        </p>
+        <ErrorState message={state.message} onRetry={state.isRepoMissing ? undefined : state.retry} />
       );
     case "success": {
       const { byPath, testsBySource, sourcesByTest } = state.index;

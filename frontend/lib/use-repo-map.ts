@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   ApiError,
@@ -19,11 +19,18 @@ export interface RepoMapIndex {
 
 export type RepoMapState =
   | { status: "loading" }
-  | { status: "error"; message: string; isRepoMissing: boolean }
+  | { status: "error"; message: string; isRepoMissing: boolean; retry: () => void }
   | { status: "success"; index: RepoMapIndex };
 
 export function useRepoMap(repoId: string): RepoMapState {
   const [state, setState] = useState<RepoMapState>({ status: "loading" });
+  // Bumped by retry() so the effect below fetches the map again.
+  const [attempt, setAttempt] = useState(0);
+
+  const retry = useCallback(() => {
+    setState({ status: "loading" });
+    setAttempt((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,10 +58,10 @@ export function useRepoMap(repoId: string): RepoMapState {
         if (controller.signal.aborted) return;
         const message =
           error instanceof ApiError ? error.message : "Could not load the code map.";
-        setState({ status: "error", message, isRepoMissing: isRepoMissingError(error) });
+        setState({ status: "error", message, isRepoMissing: isRepoMissingError(error), retry });
       });
     return () => controller.abort();
-  }, [repoId]);
+  }, [repoId, attempt, retry]);
 
   return state;
 }

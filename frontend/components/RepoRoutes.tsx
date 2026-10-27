@@ -1,4 +1,4 @@
-import { EmptyState, SkeletonLines } from "@/components/EmptyState";
+import { EmptyState, ErrorState, SkeletonLines } from "@/components/EmptyState";
 import type { RepoMapState } from "@/lib/use-repo-map";
 
 export function RepoRoutes({ state }: { state: RepoMapState }) {
@@ -16,9 +16,7 @@ function RoutesBody({ state }: { state: RepoMapState }) {
       return <SkeletonLines label="Loading routes…" />;
     case "error":
       return (
-        <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
-          {state.message}
-        </p>
+        <ErrorState message={state.message} onRetry={state.isRepoMissing ? undefined : state.retry} />
       );
     case "success": {
       const { routes } = state.index;
