@@ -1,42 +1,43 @@
+import { EmptyState, SkeletonLines } from "@/components/EmptyState";
 import type { RepoMapState } from "@/lib/use-repo-map";
 
 export function RepoRoutes({ state }: { state: RepoMapState }) {
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">Routes</h3>
+    <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">Routes</h3>
       <RoutesBody state={state} />
-    </div>
+    </section>
   );
 }
 
 function RoutesBody({ state }: { state: RepoMapState }) {
   switch (state.status) {
     case "loading":
-      return (
-        <p className="animate-pulse text-sm text-muted motion-reduce:animate-none">
-          Loading routes…
-        </p>
-      );
+      return <SkeletonLines label="Loading routes…" />;
     case "error":
       return (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
           {state.message}
         </p>
       );
     case "success": {
       const { routes } = state.index;
       if (routes.length === 0) {
-        return <p className="text-sm text-muted">No JS/TS routes found.</p>;
+        return (
+          <EmptyState title="No routes found">
+            Routes are detected in JS/TS code. Libraries and CLIs usually have none.
+          </EmptyState>
+        );
       }
       return (
-        <ul className="max-h-60 overflow-auto rounded-lg border border-border bg-surface p-3 font-mono text-xs">
+        <ul className="max-h-60 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-xs">
           {routes.map((route) => (
             <li
               key={`${route.method} ${route.path} ${route.file}`}
               className="flex justify-between gap-4 py-0.5"
             >
               <span className="truncate">
-                <span className="inline-block w-14 font-semibold">{route.method}</span>
+                <span className="inline-block w-14 font-semibold text-accent">{route.method}</span>
                 {route.path}
                 <span className="text-muted"> · {route.kind}</span>
               </span>

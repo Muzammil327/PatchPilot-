@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { EmptyState, SkeletonLines } from "@/components/EmptyState";
 import { RepoRoutes } from "@/components/RepoRoutes";
 import type { FileMap, RepoSummary } from "@/lib/api";
 import type { RepoMapState } from "@/lib/use-repo-map";
@@ -50,33 +51,45 @@ function RepoOverview({ repo, mapState }: { repo: RepoSummary; mapState: RepoMap
 
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-sm text-muted">Select a file on the left to see its symbols.</p>
+      <StartHere />
 
-      <div className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium">Stack</h2>
-        <ul className="flex flex-wrap gap-2">
-          {stackLabels.map((label) => (
-            <li key={label} className="rounded-full border border-border bg-surface px-3 py-1 text-xs">
-              {label}
-            </li>
-          ))}
-        </ul>
-      </div>
+      {repo.testFileCount === 0 && (
+        <p role="note" className="rounded-xl border border-danger bg-danger-surface p-3 text-sm text-danger">
+          No test files were detected. Fix runs verify patches with the repository&apos;s tests, so
+          results here may end as &ldquo;Needs review&rdquo;.
+        </p>
+      )}
 
-      <div className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium">Scripts</h2>
-        {scriptEntries.length === 0 ? (
-          <p className="text-sm text-muted">No test, lint, or build scripts found.</p>
-        ) : (
-          <ul className="flex flex-col gap-1 font-mono text-xs">
-            {scriptEntries.map(([name, command]) => (
-              <li key={name}>
-                <span className="font-semibold">{name}</span>
-                <span className="text-muted"> → {command}</span>
+      <div className="grid gap-5 md:grid-cols-2">
+        <OverviewCard title="Stack">
+          <ul className="flex flex-wrap gap-2">
+            {stackLabels.map((label) => (
+              <li
+                key={label}
+                className="rounded-full border border-border bg-surface-raised px-3 py-1 text-xs"
+              >
+                {label}
               </li>
             ))}
           </ul>
-        )}
+        </OverviewCard>
+
+        <OverviewCard title="Scripts">
+          {scriptEntries.length === 0 ? (
+            <EmptyState title="No test, lint, or build scripts">
+              The agent can still edit code, but it cannot run checks to verify the fix.
+            </EmptyState>
+          ) : (
+            <ul className="flex flex-col gap-1 font-mono text-xs">
+              {scriptEntries.map(([name, command]) => (
+                <li key={name} className="truncate" title={command}>
+                  <span className="font-semibold text-accent">{name}</span>
+                  <span className="text-muted"> → {command}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </OverviewCard>
       </div>
 
       <RepoRoutes state={mapState} />
@@ -84,17 +97,49 @@ function RepoOverview({ repo, mapState }: { repo: RepoSummary; mapState: RepoMap
   );
 }
 
+const START_STEPS = [
+  { title: "Ask about a bug", detail: "Use the Ask panel below. A confirmed bug moves to Fix." },
+  { title: "Browse the code", detail: "Pick a file on the left to see its symbols and tests." },
+  { title: "Search", detail: "Press / to search the repository." },
+];
+
+function StartHere() {
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
+      <h2 className="text-sm font-semibold">Start here</h2>
+      <ol className="grid gap-3 sm:grid-cols-3">
+        {START_STEPS.map((step, index) => (
+          <li key={step.title} className="flex gap-3 rounded-lg bg-surface-raised p-3">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-xs font-semibold text-accent">
+              {index + 1}
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">{step.title}</span>
+              <span className="text-xs text-muted">{step.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function OverviewCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 function FileDetails({ state, path }: { state: RepoMapState; path: string }) {
   switch (state.status) {
     case "loading":
-      return (
-        <p className="animate-pulse text-sm text-muted motion-reduce:animate-none">
-          Loading symbols…
-        </p>
-      );
+      return <SkeletonLines label="Loading symbols…" lines={4} />;
     case "error":
       return (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
           {state.message}
         </p>
       );
@@ -103,7 +148,9 @@ function FileDetails({ state, path }: { state: RepoMapState; path: string }) {
       const fileMap = byPath.get(path);
       if (!fileMap) {
         return (
-          <p className="text-sm text-muted">Symbols are only mapped for JS/TS files.</p>
+          <EmptyState title="No symbol map for this file">
+            Functions, classes, and imports are mapped for JS/TS files only.
+          </EmptyState>
         );
       }
       return (
@@ -134,7 +181,13 @@ function FileSymbols({ fileMap, testedBy, covers }: FileSymbolsProps) {
       covers.length ===
     0;
 
-  if (isEmpty) return <p className="text-sm text-muted">No top-level symbols found.</p>;
+  if (isEmpty) {
+    return (
+      <EmptyState title="No top-level symbols">
+        This file has no top-level functions, classes, imports, or exports.
+      </EmptyState>
+    );
+  }
 
   return (
     <dl className="flex flex-col gap-4 font-mono text-xs">

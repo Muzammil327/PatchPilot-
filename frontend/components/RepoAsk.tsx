@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
+import { SkeletonLines } from "@/components/EmptyState";
 import { ApiError, askRepo, isRepoMissingError, type AskResponse } from "@/lib/api";
 import { handleSubmitShortcut, SUBMIT_SHORTCUT_LABEL } from "@/lib/form-shortcuts";
 
@@ -134,12 +135,10 @@ function AskResult({
     case "loading":
       return (
         <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
-          <p className="text-sm text-muted">Finding relevant files and asking the model…</p>
-          <div aria-hidden="true" className="flex flex-col gap-2 motion-safe:animate-pulse">
-            <span className="h-2.5 w-11/12 rounded bg-surface-raised" />
-            <span className="h-2.5 w-4/5 rounded bg-surface-raised" />
-            <span className="h-2.5 w-2/3 rounded bg-surface-raised" />
-          </div>
+          <p aria-hidden="true" className="text-sm text-muted">
+            Finding relevant files and asking the model…
+          </p>
+          <SkeletonLines label="Finding relevant files and asking the model…" />
         </div>
       );
     case "error":

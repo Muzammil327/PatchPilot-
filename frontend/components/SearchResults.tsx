@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { EmptyState, SkeletonLines } from "@/components/EmptyState";
 import {
   ApiError,
   fetchRelevantFiles,
@@ -83,12 +84,10 @@ function ResultsBody({
 }) {
   switch (state.status) {
     case "loading":
-      return (
-        <p className="animate-pulse text-sm text-muted motion-reduce:animate-none">Searching…</p>
-      );
+      return <SkeletonLines label="Searching…" lines={4} />;
     case "error":
       return (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="rounded-lg border border-danger bg-danger-surface p-3 text-sm text-danger">
           {state.message}
         </p>
       );
@@ -98,7 +97,9 @@ function ResultsBody({
           <section className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">Relevant files</h3>
             {state.ranked.length === 0 ? (
-              <p className="text-sm text-muted">No relevant files found.</p>
+              <EmptyState title="No relevant files">
+                Try fewer or different keywords, such as a function, file, or error name.
+              </EmptyState>
             ) : (
               <ol className="flex flex-col gap-1">
                 {state.ranked.map((file) => (
@@ -128,7 +129,9 @@ function ResultsBody({
               )}
             </h3>
             {state.search.matches.length === 0 ? (
-              <p className="text-sm text-muted">No lines contain this exact text.</p>
+              <EmptyState title="No exact matches">
+                No line contains this exact text. Check the spelling or search for part of it.
+              </EmptyState>
             ) : (
               <ul className="flex flex-col gap-0.5 font-mono text-xs">
                 {state.search.matches.map((match) => (
