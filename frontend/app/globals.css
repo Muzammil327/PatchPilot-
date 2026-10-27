@@ -1,28 +1,35 @@
 @import "tailwindcss";
 
+/* One dark, developer-tool theme with the NVIDIA green accent. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --surface: #f4f4f5;
-  --muted: #52525b;
-  --border: #e4e4e7;
+  color-scheme: dark;
+  --background: #07090a;
+  --foreground: #ededed;
+  --surface: #111416;
+  --surface-raised: #181c1f;
+  --muted: #9ca3af;
+  --border: #252a2e;
   --accent: #76b900;
   --accent-foreground: #0a0a0a;
-  --danger: #b91c1c;
-  --danger-surface: #fef2f2;
+  /* Translucent accent for glows, selected states, and soft highlights. */
+  --accent-soft: rgb(118 185 0 / 0.12);
+  --danger: #f87171;
+  --danger-surface: #2a1215;
   /* Diff line backgrounds: tinted green for added, tinted red for removed. */
-  --diff-add: #e6f4d7;
-  --diff-remove: #fde4e4;
+  --diff-add: #16260a;
+  --diff-remove: #2d1214;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
   --color-muted: var(--muted);
   --color-border: var(--border);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
   --color-danger: var(--danger);
   --color-danger-surface: var(--danger-surface);
   --color-diff-add: var(--diff-add);
@@ -31,22 +38,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --surface: #18181b;
-    --muted: #a1a1aa;
-    --border: #27272a;
-    --danger: #f87171;
-    --danger-surface: #2a1215;
-    --diff-add: #16260a;
-    --diff-remove: #2d1214;
-  }
-}
-
 body {
-  background: var(--background);
+  background-color: var(--background);
+  /* A soft green glow behind the top of the page. */
+  background-image: radial-gradient(ellipse 80% 40% at 50% -10%, var(--accent-soft), transparent);
+  background-repeat: no-repeat;
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--foreground);
+}
+
+* {
+  scrollbar-color: var(--border) transparent;
 }
